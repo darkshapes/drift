@@ -1,16 +1,16 @@
 use anyhow::{Context, Result};
 use drift_proto::{
-    read_message, write_message, DriftMessage, NodeInfo, RingConfig, TrainConfig, DRIFT_ALPN,
+    read_message, write_message, DriftMessage, NodeInfo, TrainConfig, DRIFT_ALPN,
 };
 use iroh::{Endpoint, PublicKey};
 use std::str::FromStr;
-use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::Mutex;
 use tracing::{error, info, warn};
 
 pub async fn train(
+    repo: String,
     peer_ids: Vec<String>,
     _script: Option<String>,
     model_path: String,
@@ -57,6 +57,12 @@ pub async fn train(
         batch_size,
         learning_rate,
         epochs,
+        train_repo_url: Some(repo),
+        script_entrypoint: None,
+        dataset_repo_url: None,
+        model_artifact_ref: None,
+        enable_auth: false,
+        auth_threshold: 3,
     };
 
     // Connect to each peer and collect node info
@@ -130,9 +136,7 @@ pub async fn train(
     println!();
 
     // Build ring topology
-    let ring_configs = build_ring(&node_infos);
-
-    // Send config, shard assignments, and ring config
+    // Send config, shard assignments
     for (i, (send, _recv)) in connections.iter_mut().enumerate() {
         write_message(send, &DriftMessage::TrainConfig(train_config.clone())).await?;
         write_message(
@@ -140,19 +144,8 @@ pub async fn train(
             &DriftMessage::ShardAssignment(assignments[i].clone()),
         )
         .await?;
-        write_message(
-            send,
-            &DriftMessage::RingConfig(ring_configs[i].clone()),
-        )
-        .await?;
-        info!(node = %node_infos[i].node_id, "sent config, shard, and ring config");
+        info!(node = %node_infos[i].node_id, "sent config, shard");
     }
-
-    // Signal all nodes to connect to their ring neighbors
-    for (send, _recv) in connections.iter_mut() {
-        write_message(send, &DriftMessage::StartRing).await?;
-    }
-    info!("sent StartRing to all nodes");
 
     // Create checkpoint dir
     tokio::fs::create_dir_all(&checkpoint_dir).await.ok();
@@ -165,11 +158,6 @@ pub async fn train(
 
     println!("Monitoring training progress (Ctrl+C to stop)...");
     println!();
-
-    // Barrier synchronization: step -> set of node_ids that arrived
-    let barrier_arrivals: Arc<Mutex<HashMap<u64, HashSet<String>>>> =
-        Arc::new(Mutex::new(HashMap::new()));
-    let expected_barrier_count = node_infos.len();
 
     // Track active nodes and progress
     let active_nodes = Arc::new(Mutex::new(
@@ -188,8 +176,6 @@ pub async fn train(
         send_handles.push(send.clone());
         wrapped_connections.push((send, recv));
     }
-    let send_handles_for_barrier: Arc<Mutex<Vec<Arc<Mutex<iroh::endpoint::SendStream>>>>> =
-        Arc::new(Mutex::new(send_handles.clone()));
 
     // Spawn a listener per peer
     let mut handles = Vec::new();
@@ -221,9 +207,6 @@ pub async fn train(
         let lcs = last_ckpt_step.clone();
         let cd = ckpt_dir.clone();
         let cn = ckpt_nodes.clone();
-        let barrier = barrier_arrivals.clone();
-        let all_sends = send_handles_for_barrier.clone();
-        let expected_count = expected_barrier_count;
 
         let handle = tokio::spawn(async move {
             let mut last_step = 0u64;
@@ -268,25 +251,6 @@ pub async fn train(
                                 let _ = tokio::fs::write(&latest, &json).await;
                                 println!("  checkpoint saved at step {}", step);
                             }
-                        }
-                    }
-                    Ok(DriftMessage::BarrierSync { step, node_id: barrier_node }) => {
-                        info!(step, node = %barrier_node, "barrier sync received");
-                        let mut arrivals = barrier.lock().await;
-                        let entry = arrivals.entry(step).or_default();
-                        entry.insert(barrier_node);
-                        if entry.len() >= expected_count {
-                            info!(step, "barrier complete, broadcasting BarrierReady");
-                            let sends = all_sends.lock().await;
-                            for s in sends.iter() {
-                                let mut s = s.lock().await;
-                                let _ = write_message(
-                                    &mut *s,
-                                    &DriftMessage::BarrierReady { step },
-                                )
-                                .await;
-                            }
-                            arrivals.remove(&step);
                         }
                     }
                     Ok(DriftMessage::Pong) => {
@@ -369,26 +333,6 @@ pub async fn train(
 
     endpoint.close().await;
     Ok(())
-}
-
-/// Build a ring topology from the connected nodes.
-fn build_ring(nodes: &[NodeInfo]) -> Vec<RingConfig> {
-    let n = nodes.len();
-    if n == 0 {
-        return vec![];
-    }
-    (0..n)
-        .map(|i| {
-            let left = if i == 0 { n - 1 } else { i - 1 };
-            let right = (i + 1) % n;
-            RingConfig {
-                rank: i as u32,
-                world_size: n as u32,
-                left_peer_id: nodes[left].node_id.clone(),
-                right_peer_id: nodes[right].node_id.clone(),
-            }
-        })
-        .collect()
 }
 
 /// Compute shard assignments weighted by VRAM.

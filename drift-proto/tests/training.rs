@@ -115,6 +115,12 @@ async fn test_training_pipeline() {
             batch_size: 32,
             learning_rate: 0.001,
             epochs,
+            train_repo_url: None,
+            script_entrypoint: None,
+            dataset_repo_url: None,
+            model_artifact_ref: None,
+            enable_auth: false,
+            auth_threshold: 3,
         }),
     )
     .await

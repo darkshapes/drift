@@ -1,9 +1,10 @@
-use drift_node::{gpu, network};
+use drift_node::{gpu, network, training};
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
-use drift_proto::{DriftMessage, NodeInfo};
-use tracing::{error, info};
+use drift_proto::{DriftMessage, NodeInfo, LocalShardState};
+use tokio::sync::mpsc;
+use tracing::{error, info, warn};
 
 #[derive(Parser)]
 #[command(name = "drift-node", version, about = "P2P distributed training node")]
@@ -41,41 +42,126 @@ async fn main() -> Result<()> {
     }
 }
 
-async fn join(name: Option<String>) -> Result<()> {
-    // Detect GPUs
-    let gpus = gpu::detect_gpus().await?;
-    let primary = gpus.first().cloned().unwrap_or_else(gpu::placeholder_gpu);
-    let total_vram: u64 = gpus.iter().map(|g| g.vram_mb).sum();
+pub enum ResumeDecision {
+    Resume,
+    RequestAssignment,
+}
 
-    // Create iroh endpoint
+fn decide_resume_or_reassign(state: &LocalShardState) -> ResumeDecision {
+    if state.last_checkpoint_step > 0 {
+        ResumeDecision::Resume
+    } else {
+        ResumeDecision::RequestAssignment
+    }
+}
+
+async fn join(name: Option<String>) -> Result<()> {
+    let gpus = gpu::detect_gpu_info().await;
+    let first_gpu = gpus.first();
+    let (gpu_name, gpu_vram, gpu_cc) = if let Some(gpu) = first_gpu {
+        (gpu.name.clone(), gpu.vram_mb, gpu.compute_capability.clone())
+    } else {
+        (
+            "CPU-only (no GPU detected)".to_string(),
+            0,
+            "0.0".to_string(),
+        )
+    };
+    let total_vram: u64 = if gpus.is_empty() {
+        0
+    } else {
+        gpus.iter().map(|g| g.vram_mb).sum()
+    };
+
     let endpoint = network::create_endpoint().await?;
     let node_id = endpoint.id();
 
-    let display_name = name.unwrap_or_else(|| node_id.to_string()[..12].to_string());
+    let node_id_str = node_id.to_string();
+
+  match LocalShardState::load_from_disk(&node_id_str) {
+        Ok(Some(cached)) => {
+            println!("found cached state, resuming from step {}",
+                cached.last_checkpoint_step);
+
+            match decide_resume_or_reassign(&cached) {
+                ResumeDecision::Resume => {
+                    println!("decided to resume training");
+                    let shard = &cached.shard_assignment;
+                    println!("  shard {} [{}, {})", shard.shard_index, shard.shard_start, shard.shard_end);
+                    let config = &cached.train_config;
+                    println!("  config: epochs={}, batch={}", config.epochs, config.batch_size);
+                    info!(step = cached.last_checkpoint_step, "will resume from checkpoint");
+
+                    let script: String = config.script_entrypoint.as_ref().unwrap_or(&"/tmp/train.py".to_string()).to_string();
+                    let (progress_tx, _progress_rx) = mpsc::channel(16);
+
+                    match training::spawn_training_with_progress(
+                        &script,
+                        &config.model_path,
+                        &config.dataset_path,
+                        config.batch_size,
+                        config.learning_rate,
+                        config.epochs,
+                        shard.shard_index,
+                        shard.shard_start,
+                        shard.shard_end,
+                        node_id_str.clone(),
+                        progress_tx,
+                        Some(cached.clone()),
+                    ).await {
+                        Ok((_child, final_step)) => {
+                            println!("training completed at step {}", final_step);
+                        }
+                        Err(e) => {
+                            error!(error = %e, "training failed");
+                        }
+                    }
+                }
+                ResumeDecision::RequestAssignment => {
+                    println!("decided to request fresh assignment");
+                    let cache_path = LocalShardState::local_cache_path(&node_id_str);
+                    if cache_path.exists() {
+                        if let Err(e) = std::fs::remove_file(&cache_path) {
+                            warn!(error = %e, "failed to delete cached state");
+                        }
+                    }
+                    println!("cache deleted, will request new assignment from coordinator");
+                }
+            }
+        }
+        _ => {
+            println!("no local cache found, waiting for coordinator to assign work");
+        }
+    }
+
+    let short_id = node_id.to_string();
+    let display_name = name.unwrap_or_else(|| {
+        if short_id.chars().count() > 12 {
+            short_id.chars().take(12).collect::<String>()
+        } else {
+            short_id.clone()
+        }
+    });
     println!("drift node started");
     println!("  Node ID:  {}", node_id);
     println!("  Name:     {}", display_name);
     if gpus.len() <= 1 {
-        println!("  GPU:      {} ({} MB VRAM)", primary.name, primary.vram_mb);
+        println!("  GPU:      {} ({} MB VRAM)", gpu_name, gpu_vram);
     } else {
         println!("  GPUs:     {} devices ({} MB total VRAM)", gpus.len(), total_vram);
-        for (i, g) in gpus.iter().enumerate() {
-            println!("    [{}] {} ({} MB)", i, g.name, g.vram_mb);
+        for (i, gpu) in gpus.iter().enumerate() {
+            println!("    [{}] {} ({} MB)", i, gpu.name, gpu.vram_mb);
         }
     }
-    println!();
-    println!("Share your Node ID with the coordinator to join training.");
-    println!("Waiting for connections...");
 
     let node_info_msg = DriftMessage::NodeInfo(NodeInfo {
         node_id: node_id.to_string(),
-        gpu_name: primary.name,
-        gpu_vram_mb: total_vram.max(primary.vram_mb),
-        gpu_compute_capability: primary.compute_capability,
+        gpu_name,
+        gpu_vram_mb: total_vram.max(gpu_vram),
+        gpu_compute_capability: gpu_cc,
         available: true,
     });
 
-    // Accept incoming connections until Ctrl+C
     let accept_loop = async {
         loop {
             let incoming = match endpoint.accept().await {
@@ -107,6 +193,11 @@ async fn join(name: Option<String>) -> Result<()> {
         _ = tokio::signal::ctrl_c() => {
             println!();
             println!("shutting down...");
+
+            let node_id_str = node_id.to_string();
+            if let Ok(Some(cached)) = LocalShardState::load_from_disk(&node_id_str) {
+                cached.save_to_disk(&node_id_str)?;
+            }
         }
     }
 
@@ -115,7 +206,11 @@ async fn join(name: Option<String>) -> Result<()> {
 }
 
 async fn status() -> Result<()> {
-    let gpus = gpu::detect_gpus().await?;
+    let nvidia_gpus = gpu::detect_gpus().await?;
+    let apple_gpus = gpu::detect_gpu_info().await;
+    
+    let mut gpus: Vec<_> = nvidia_gpus;
+    gpus.extend(apple_gpus);
     let driver = gpu::driver_version().await;
 
     println!("drift node status");

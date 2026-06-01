@@ -3,14 +3,83 @@ use drift_proto::{
     read_message, write_message, DriftMessage, NodeInfo, DRIFT_ALPN, DRIFT_RING_ALPN,
 };
 use iroh::{Endpoint, PublicKey};
-use std::str::FromStr;
-use std::sync::Arc;
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use tokio::sync::Mutex;
+use tokio::io::{AsyncBufReadExt, BufReader};
 use tracing::{error, info, warn};
 
 use crate::ipc::{self, PythonMessage};
-use crate::shm::{DriftShm, DEFAULT_SHM_SIZE};
+
+async fn detect_cpu_brand() -> String {
+    let output = tokio::process::Command::new("sysctl")
+        .args(["-n", "machdep.cpu.brand_string"])
+        .output()
+        .await
+        .ok();
+
+    match output {
+        Some(o) if o.status.success() => {
+            String::from_utf8_lossy(&o.stdout).trim().to_string()
+        }
+        _ => String::new(),
+    }
+}
+
+fn parse_compute_capability(cpu_brand: &str) -> String {
+    let mut chip_letter = None;
+    let mut has_five = false;
+
+    for c in cpu_brand.chars() {
+        if c == 'M' || c == 'A' {
+            chip_letter = Some(c);
+        } else if c.is_ascii_digit() && c == '5' {
+            has_five = true;
+        }
+    }
+
+    let tier = cpu_brand.split(' ').last().unwrap_or("").to_lowercase();
+    let is_m5 = chip_letter == Some('M') && has_five;
+
+    if is_m5 && tier == "ultra" { return "10".to_string(); }
+    if !is_m5 && tier == "ultra" { return "8.9".to_string(); }
+    if tier == "max" || (chip_letter == Some('M') && tier != "pro") { return "8.6".to_string(); }
+    if tier == "pro" || tier == "base" || (!tier.is_empty()) { return "8.0".to_string(); }
+    "7.5".to_string()
+}
+
+/// Check system architecture on MacOS.
+async fn detect_arch() -> Option<(String, u64)> {
+    let output = tokio::process::Command::new("sysctl")
+        .arg("-n")
+        .arg("hw.machine")
+        .output()
+        .await;
+
+    match output {
+        Ok(o) if o.status.success() => {
+            let arch = String::from_utf8_lossy(&o.stdout).trim().to_string();
+            if arch.starts_with("arm") {
+                let cpu_brand = detect_cpu_brand().await;
+                let mem_output = tokio::process::Command::new("sysctl")
+                    .args(["-n", "hw.memsize"])
+                    .output()
+                    .await;
+                match mem_output {
+                    Ok(m) if m.status.success() => {
+                        let mem_bytes: u64 =
+                            String::from_utf8_lossy(&m.stdout)
+                                .trim()
+                                .parse()
+                                .unwrap_or(0);
+                        Some((cpu_brand, mem_bytes))
+                    }
+                    _ => None,
+                }
+            } else {
+                None
+            }
+        }
+        _ => None,
+    }
+}
 
 /// Detect GPUs via nvidia-smi. Returns empty vec if unavailable.
 async fn detect_gpus() -> Vec<(String, u64, String)> {
@@ -46,7 +115,25 @@ async fn detect_gpus() -> Vec<(String, u64, String)> {
 }
 
 pub async fn join(name: Option<String>) -> Result<()> {
-    let gpus = detect_gpus().await;
+    #[cfg(target_os = "macos")]
+    fn is_mac() -> bool { true }
+
+    #[cfg(not(target_os = "macos"))]
+    fn is_mac() -> bool { false }
+
+    let gpus: Vec<(String, u64, String)> = if is_mac() {
+        match detect_arch().await {
+            Some((cpu_brand, mem_bytes)) => {
+                let vram_mb = mem_bytes / 1024 / 1024;
+                let compute_capability = parse_compute_capability(&cpu_brand);
+                let chip_name = if cpu_brand.is_empty() { "Apple Silicon" } else { &cpu_brand };
+                vec![(chip_name.to_string(), vram_mb, compute_capability)]
+            }
+            None => vec![],
+        }
+    } else {
+        detect_gpus().await
+    };
     let (gpu_name, gpu_vram, gpu_cc) = gpus.first().cloned().unwrap_or((
         "CPU-only (no GPU detected)".to_string(),
         0,
@@ -64,7 +151,14 @@ pub async fn join(name: Option<String>) -> Result<()> {
         .await?;
 
     let node_id = endpoint.id();
-    let display_name = name.unwrap_or_else(|| node_id.to_string()[..12].to_string());
+        let short_id = node_id.to_string();
+    let display_name = name.unwrap_or_else(|| {
+        if short_id.chars().count() > 12 {
+            short_id.chars().take(12).collect::<String>()
+        } else {
+            short_id.clone()
+        }
+    });
 
     println!("drift node started");
     println!("  Node ID:  {}", node_id);
@@ -126,12 +220,6 @@ pub async fn join(name: Option<String>) -> Result<()> {
     Ok(())
 }
 
-/// Ring connection streams for gradient synchronization.
-struct RingStreams {
-    send_right: iroh::endpoint::SendStream,
-    recv_left: iroh::endpoint::RecvStream,
-}
-
 async fn handle_connection(
     conn: iroh::endpoint::Connection,
     node_info_msg: DriftMessage,
@@ -154,9 +242,8 @@ async fn handle_connection(
 
     // State for training
     let mut train_config = None;
-    let mut ring_config = None;
+    #[allow(unused_assignments)]
     let mut shard_assignment = None;
-    let ring_streams: Arc<Mutex<Option<RingStreams>>> = Arc::new(Mutex::new(None));
 
     loop {
         match read_message(&mut recv).await {
@@ -175,42 +262,18 @@ async fn handle_connection(
                 DriftMessage::ShardAssignment(s) => {
                     info!(shard_index = s.shard_index, size = s.size(), "received shard");
                     shard_assignment = Some(s);
-                }
-                DriftMessage::RingConfig(rc) => {
-                    info!(rank = rc.rank, world_size = rc.world_size, "received ring config");
-                    ring_config = Some(rc);
-                }
-                DriftMessage::StartRing => {
-                    info!("StartRing received, establishing ring connections");
-                    if let Some(ref rc) = ring_config {
-                        if rc.world_size > 1 {
-                            // Connect to right neighbor and accept from left
-                            let streams = establish_ring(
-                                &endpoint,
-                                rc,
-                            )
-                            .await?;
-                            *ring_streams.lock().await = Some(streams);
-                            info!("ring connections established");
-                        } else {
-                            info!("single-node training, skipping ring establishment");
-                        }
-                    }
-
-                    // Start training with ring streams
                     if let Some(ref config) = train_config {
                         info!("starting training with gradient sync");
                         run_training(
                             config,
-                            &ring_config.as_ref().expect("ring config"),
                             &mut send,
                             &mut recv,
-                            &ring_streams,
                             shard_assignment.as_ref(),
                         )
                         .await?;
                     }
                 }
+
                 DriftMessage::Heartbeat { .. } => {
                     write_message(
                         &mut send,
@@ -230,72 +293,19 @@ async fn handle_connection(
                 warn!("connection closed: {}", e);
                 break;
             }
+
         }
     }
 
     Ok(())
 }
 
-/// Establish ring connections: connect to right neighbor and accept from left.
-async fn establish_ring(
-    endpoint: &Endpoint,
-    ring_config: &drift_proto::RingConfig,
-) -> Result<RingStreams> {
-    let right_key = PublicKey::from_str(&ring_config.right_peer_id)?;
-
-    // Connect to right neighbor (we send to right)
-    // Accept from left neighbor (we receive from left)
-    // Use try_join to do both concurrently — left neighbor is connecting to us simultaneously
-
-    let connect_right = async {
-        let conn = endpoint.connect(right_key, DRIFT_RING_ALPN).await?;
-        let (send, _recv) = conn.open_bi().await?;
-        // Write a small handshake so the bi-stream is visible on the other side
-        let mut s = send;
-        write_message(&mut s, &DriftMessage::Ping).await?;
-        info!("connected to right neighbor");
-        Ok::<_, anyhow::Error>(s)
-    };
-
-    let accept_left = async {
-        // Accept incoming ring connection from left neighbor
-        loop {
-            let incoming = endpoint
-                .accept()
-                .await
-                .ok_or_else(|| anyhow::anyhow!("endpoint closed while waiting for left neighbor"))?;
-            let conn = incoming.await?;
-            let alpn = conn.alpn();
-            if alpn.as_ref() == DRIFT_RING_ALPN {
-                let (_send, mut recv) = conn.accept_bi().await?;
-                // Read the handshake ping
-                let msg = read_message(&mut recv).await?;
-                if !matches!(msg, DriftMessage::Ping) {
-                    anyhow::bail!("expected Ping from left neighbor, got {}", msg);
-                }
-                info!("accepted ring connection from left neighbor");
-                return Ok::<_, anyhow::Error>(recv);
-            }
-            // Not a ring connection, ignore
-        }
-    };
-
-    let (send_right, recv_left) = tokio::try_join!(connect_right, accept_left)?;
-
-    Ok(RingStreams {
-        send_right,
-        recv_left,
-    })
-}
-
 /// Execute training and stream progress back to coordinator.
 /// Dispatches to real Python training if model_path is a .py file, otherwise simulates.
 async fn run_training(
     config: &drift_proto::TrainConfig,
-    ring_config: &drift_proto::RingConfig,
     coord_send: &mut iroh::endpoint::SendStream,
     coord_recv: &mut iroh::endpoint::RecvStream,
-    ring_streams: &Arc<Mutex<Option<RingStreams>>>,
     shard: Option<&drift_proto::ShardAssignment>,
 ) -> Result<()> {
     if config.model_path.ends_with(".py") {
@@ -306,39 +316,26 @@ async fn run_training(
             );
         }
         info!(script = %config.model_path, "launching real Python training");
-        run_real_training(config, ring_config, coord_send, coord_recv, ring_streams, shard).await
+        run_real_training(config, coord_send, coord_recv, shard).await
     } else {
         info!("running simulated training with gradient sync");
-        simulate_training(config, ring_config, coord_send, coord_recv, ring_streams).await
+        simulate_training(config, coord_send).await
     }
 }
 
-/// Run real Python training via subprocess with shared memory IPC.
+/// Run real Python training via subprocess.
 async fn run_real_training(
     config: &drift_proto::TrainConfig,
-    ring_config: &drift_proto::RingConfig,
     coord_send: &mut iroh::endpoint::SendStream,
-    coord_recv: &mut iroh::endpoint::RecvStream,
-    ring_streams: &Arc<Mutex<Option<RingStreams>>>,
+    _coord_recv: &mut iroh::endpoint::RecvStream,
     shard: Option<&drift_proto::ShardAssignment>,
 ) -> Result<()> {
-    use drift_proto::ring::{ring_allreduce, RingState};
     use std::process::Stdio;
 
-    // 1. Create shared memory
-    let shm = DriftShm::create(std::process::id(), DEFAULT_SHM_SIZE)?;
-    let shm_name = shm.name().to_string();
-    info!(shm = %shm_name, "created shared memory");
 
-    // 2. Spawn Python subprocess with piped stdio and env vars
-    // Python's SharedMemory expects name without leading "/"
-    let python_shm_name = shm.python_name().to_string();
     let master_port = 29500 + (std::process::id() % 1000);
     let mut cmd = tokio::process::Command::new("python3");
     cmd.arg(&config.model_path)
-        .env("DRIFT_SHM_NAME", &python_shm_name)
-        .env("DRIFT_RANK", ring_config.rank.to_string())
-        .env("DRIFT_WORLD_SIZE", ring_config.world_size.to_string())
         .env("DRIFT_BATCH_SIZE", config.batch_size.to_string())
         .env("DRIFT_LEARNING_RATE", config.learning_rate.to_string())
         .env("DRIFT_EPOCHS", config.epochs.to_string())
@@ -363,7 +360,7 @@ async fn run_real_training(
 
     let child_stdin = child.stdin.take().expect("piped stdin");
     let child_stdout = child.stdout.take().expect("piped stdout");
-    let mut stdin_writer = child_stdin;
+    let stdin_writer = child_stdin;
     let mut stdout_reader = BufReader::new(child_stdout).lines();
 
     // 3. Wait for DRIFT_READY with timeout
@@ -392,10 +389,7 @@ async fn run_real_training(
         }
     }
 
-    // 4. IPC loop: read lines from child stdout, process commands
-    // DDP sends multiple allreduce calls per step (one per gradient bucket).
-    // We only barrier-sync with coordinator on the first bucket per step.
-    let mut last_barrier_step: Option<u64> = None;
+    let last_barrier_step: Option<u64> = None; // maybe dont need to do this?
 
     while let Some(line) = stdout_reader.next_line().await? {
         let msg = ipc::parse_python_line(&line);
@@ -403,66 +397,9 @@ async fn run_real_training(
             PythonMessage::Ready => {
                 // Already handled above, but harmless
             }
-            PythonMessage::Allreduce { op_id, num_floats } => {
-                info!(op_id, num_floats, "allreduce request from Python");
-
-                // Read gradient from shm
-                let gradient = shm.read_gradient(num_floats)?;
-
-                // Barrier sync with coordinator (only once per step, not per bucket).
-                // Use op_id as an approximation — first bucket of each step triggers barrier.
-                let needs_barrier = last_barrier_step.map_or(true, |s| op_id > s);
-                if needs_barrier {
-                    write_message(
-                        coord_send,
-                        &DriftMessage::BarrierSync {
-                            step: op_id,
-                            node_id: format!("rank-{}", ring_config.rank),
-                        },
-                    )
-                    .await?;
-
-                    loop {
-                        let coord_msg = read_message(coord_recv).await?;
-                        match coord_msg {
-                            DriftMessage::BarrierReady { step } if step == op_id => break,
-                            DriftMessage::Ping => {
-                                write_message(coord_send, &DriftMessage::Pong).await?;
-                            }
-                            _ => {}
-                        }
-                    }
-                    last_barrier_step = Some(op_id);
-                }
-
-                // Run ring all-reduce
-                let mut streams = ring_streams.lock().await;
-                let averaged = if let Some(ref mut rs) = *streams {
-                    let state = RingState::new(
-                        ring_config.rank as usize,
-                        ring_config.world_size as usize,
-                        gradient,
-                    );
-                    ring_allreduce(state, op_id, &mut rs.send_right, &mut rs.recv_left).await?
-                } else {
-                    // Single node: just average with self (no-op)
-                    gradient
-                };
-                drop(streams);
-
-                // Write result back to shm
-                shm.write_gradient(&averaged)?;
-
-                // Signal Python that allreduce is done
-                let response = format!("{}\n", ipc::format_allreduce_done(op_id));
-                stdin_writer.write_all(response.as_bytes()).await?;
-                stdin_writer.flush().await?;
-
-                info!(op_id, "allreduce complete");
-            }
             PythonMessage::Progress { epoch, step, loss, throughput } => {
                 let progress = drift_proto::TrainProgress {
-                    node_id: format!("rank-{}", ring_config.rank),
+                    node_id: format!("rank-{}", "N/A"),
                     epoch,
                     step,
                     loss,
@@ -505,15 +442,10 @@ async fn run_real_training(
 /// Simulate training progress with gradient synchronization.
 async fn simulate_training(
     config: &drift_proto::TrainConfig,
-    ring_config: &drift_proto::RingConfig,
     coord_send: &mut iroh::endpoint::SendStream,
-    coord_recv: &mut iroh::endpoint::RecvStream,
-    ring_streams: &Arc<Mutex<Option<RingStreams>>>,
 ) -> Result<()> {
-    use drift_proto::ring::{ring_allreduce, RingState};
 
     let steps_per_epoch = 5u64;
-    let gradient_size = 100usize; // mock gradient with 100 floats
     let mut loss = 2.5_f64;
 
     for epoch in 0..config.epochs {
@@ -522,59 +454,10 @@ async fn simulate_training(
 
             tokio::time::sleep(std::time::Duration::from_millis(50)).await;
 
-            // Generate mock gradient data
-            let gradient: Vec<f32> = (0..gradient_size)
-                .map(|i| (ring_config.rank as f32 + 1.0) * (i as f32 + 1.0))
-                .collect();
-
-            // Barrier sync with coordinator
-            write_message(
-                coord_send,
-                &DriftMessage::BarrierSync {
-                    step: global_step,
-                    node_id: format!("rank-{}", ring_config.rank),
-                },
-            )
-            .await?;
-
-            // Wait for BarrierReady
-            loop {
-                let msg = read_message(coord_recv).await?;
-                match msg {
-                    DriftMessage::BarrierReady { step } if step == global_step => break,
-                    DriftMessage::Ping => {
-                        write_message(coord_send, &DriftMessage::Pong).await?;
-                    }
-                    _ => {}
-                }
-            }
-
-            // Run ring all-reduce if we have ring streams
-            let mut streams = ring_streams.lock().await;
-            if let Some(ref mut rs) = *streams {
-                let state = RingState::new(
-                    ring_config.rank as usize,
-                    ring_config.world_size as usize,
-                    gradient,
-                );
-                let _averaged = ring_allreduce(
-                    state,
-                    global_step,
-                    &mut rs.send_right,
-                    &mut rs.recv_left,
-                )
-                .await?;
-                info!(step = global_step, "gradient sync complete");
-                println!(
-                    "DRIFT_GRADIENT {} {}",
-                    global_step, gradient_size
-                );
-            }
-            drop(streams);
 
             loss *= 0.98;
             let progress = drift_proto::TrainProgress {
-                node_id: format!("rank-{}", ring_config.rank),
+                node_id: format!("rank-{}", "N/A"),
                 epoch,
                 step: global_step,
                 loss,
@@ -588,7 +471,25 @@ async fn simulate_training(
 }
 
 pub async fn status() -> Result<()> {
-    let gpus = detect_gpus().await;
+    #[cfg(target_os = "macos")]
+    fn is_mac() -> bool { true }
+
+    #[cfg(not(target_os = "macos"))]
+    fn is_mac() -> bool { false }
+
+    let gpus: Vec<(String, u64, String)> = if is_mac() {
+        match detect_arch().await {
+            Some((cpu_brand, mem_bytes)) => {
+                let vram_mb = mem_bytes / 1024 / 1024;
+                let compute_capability = parse_compute_capability(&cpu_brand);
+                let chip_name = if cpu_brand.is_empty() { "Apple Silicon" } else { &cpu_brand };
+                vec![(chip_name.to_string(), vram_mb, compute_capability)]
+            }
+            None => vec![],
+        }
+    } else {
+        detect_gpus().await
+    };
 
     // Driver version
     if let Ok(output) = tokio::process::Command::new("nvidia-smi")

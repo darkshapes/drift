@@ -1,6 +1,5 @@
 mod node;
 mod coord;
-mod shm;
 mod ipc;
 
 use anyhow::Result;
@@ -28,6 +27,10 @@ enum Commands {
 
     /// Start a training run across peer nodes
     Train {
+        /// Git URL to clone (required for authentication)
+        #[arg(long)]
+        repo: String,
+
         /// Comma-separated list of peer node IDs
         #[arg(long, value_delimiter = ',')]
         peers: Vec<String>,
@@ -37,7 +40,7 @@ enum Commands {
         script: Option<String>,
 
         /// Path to model
-        #[arg(long, default_value = "model.pt")]
+        #[arg(long, default_value = "model.safetensors")]
         model_path: String,
 
         /// Path to dataset
@@ -87,6 +90,7 @@ async fn main() -> Result<()> {
     match cli.command {
         Commands::Join { name } => node::join(name).await,
         Commands::Train {
+            repo,
             peers,
             script,
             model_path,
@@ -99,6 +103,7 @@ async fn main() -> Result<()> {
             resume,
         } => {
             coord::train(
+                repo,
                 peers,
                 script,
                 model_path,

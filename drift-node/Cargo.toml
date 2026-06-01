@@ -6,6 +6,7 @@ edition = "2021"
 [dependencies]
 drift-proto = { path = "../drift-proto" }
 iroh = { workspace = true }
+sha2 = { workspace = true }
 tokio = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

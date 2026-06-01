@@ -1,264 +1,255 @@
-# drift
+---
+library_name: drift
+license_name: MPL-2.0 + Commons Clause 1.0
+language: en
+compatibility:
+  - macos
+  - linux
+---
 
-P2P distributed training. Plug your GPU into the mesh.
+# Drift
 
-## What is this?
+Drift coordinates distributed model training across COVEN peer nodes using encrypted peer-to-peer (p2p) networking via [iroh](https://github.com/n0-computer/iroh). Unlike traditional distributed training that shares gradients and tensor products over the network, each node trains independently at its own pace without synchronization overhead.
 
-drift lets you train models across consumer GPUs on different networks. No cloud account, no VPN, no static IPs. Each machine joins the swarm by public key using [iroh](https://github.com/n0-computer/iroh) for peer-to-peer connectivity over QUIC.
+## Overview
 
-Think of it as a decentralized Slurm for indie researchers.
+### Purpose
 
-## How it works
+Distributed training coordination for consumer hardware (GPUs and CPUs) that:
+
+- Avoids gradient sharing and allgather operations entirely
+- Trains nodes independently in a ring-free, GLOO-free, NVLink-free architecture
+- Supports Apple Silicon Metal, NVIDIA CUDA, AMD ROCm, and Vulkan backends
+- Communicates over QUIC-encrypted iroh tunnels with automatic NAT hole-punching
+
+## End-to-End Operation
 
 ```
-Machine A (RTX 3090)              Machine B (RTX 4090)
-  $ drift-node join                 $ drift-node join
-  > Node ID: abc123...              > Node ID: def456...
-  > GPU: RTX 3090 (24576 MB)       > GPU: RTX 4090 (24564 MB)
-  > Waiting for connections...      > Waiting for connections...
-
-Machine A (coordinator):
-  $ drift-coord train --peers abc123,def456 --epochs 10
-  > Connected: abc123 | RTX 3090 (24576 MB VRAM)
-  > Connected: def456 | RTX 4090 (24564 MB VRAM)
-  > Starting training (2 nodes, shards weighted by VRAM)
+┌─────────────┐     ┌─────────────┐     ┌─────────────┐
+│ Coordinator  │◄───│   Node A    │◄───│   Node B     │
+└─────────────┘     └─────────────┘     └─────────────┘
+        │                     │                     │
+   ALPN: drift/0         ping/pong           TrainConfig/ShardAssignment
 ```
+
+### Protocol Flow (ALPN: `drift/0`)
+
+1. **Handshake**: Coordinator initiates QUIC connection to node, sends `Ping`
+2. **Discovery**: Node responds with `NodeInfo` containing GPU name, VRAM, compute capability
+3. **Configuration**: Coordinator sends `TrainConfig`, `ShardAssignment`
+4. **Training Loop**:
+   - Nodes train locally at their own pace
+   - Nodes send periodic `BarrierSync` per step
+   - Coordinator replies `BarrierReady` for checkpoint coordination
+5. **Progress**: Node streams `TrainProgress` updates back to coordinator
+6. **Finalization**: Checkpoint aggregation on coordinated barrier
+
+All traffic is encrypted end-to-end via QUIC. NAT hole-punching is handled automatically by iroh, with relay fallback. Messages are length-prefixed JSON over QUIC bidirectional streams.
 
 ## Architecture
 
-```mermaid
-graph TB
-    subgraph Coordinator
-        C[drift-coord<br/>Rust]
-    end
+### Libraries
 
-    subgraph Node["Each Node"]
-        N[drift-node<br/>Rust]
-        P[Python subprocess<br/>PyTorch DDP + comm_hook]
-        N -- "shm: gradient data<br/>stdio: control messages" --> P
-    end
+| Library                        | Purpose                                                      |
+| ------------------------------ | ------------------------------------------------------------ |
+| [drift-auth](../drift-auth/)   | Ed25519 key generation, signing, token validation, LRU cache |
+| [drift-proto](../drift-proto/) | Message types, serialization, protocol framing, ALPN         |
+| [drift-coord](../drift-coord/) | Peer discovery, session negotiation, training orchestration  |
+| [drift-node](../drift-node/)   | COVEN node runtime, VRAM tracking, status monitoring         |
 
-    C -- "QUIC/iroh — ALPN: drift/0<br/>Ping, TrainConfig, ShardAssignment<br/>RingConfig, BarrierSync/Ready" --> N
-    N -- "TrainProgress, BarrierSync" --> C
-
-    N -. "QUIC — ALPN: drift-ring/0<br/>ring all-reduce<br/>(GradientChunk)" .-> N
-
-    style C fill:#2d3436,color:#dfe6e9
-    style N fill:#2d3436,color:#dfe6e9
-    style P fill:#2d3436,color:#dfe6e9
-```
-
-```mermaid
-sequenceDiagram
-    participant C as Coordinator
-    participant R as Rust Node
-    participant P as Python (DDP)
-
-    C->>R: Ping
-    R->>C: NodeInfo (GPU, VRAM)
-    C->>R: TrainConfig + ShardAssignment
-    C->>R: RingConfig + StartRing
-    R->>R: establish ring with neighbors
-
-    R->>P: spawn subprocess (shm + env vars)
-    P->>R: DRIFT_READY
-
-    loop each backward pass
-        P->>P: loss.backward() triggers comm_hook
-        P->>R: DRIFT_ALLREDUCE op_id num_floats (stdout)
-        Note over P,R: gradient in shared memory
-        R->>C: BarrierSync
-        C->>R: BarrierReady
-        R->>R: ring all-reduce over QUIC
-        Note over P,R: averaged gradient in shared memory
-        R->>P: DRIFT_ALLREDUCE_DONE op_id (stdin)
-        P->>R: DRIFT_PROGRESS epoch step loss throughput
-        R->>C: TrainProgress
-    end
-
-    P->>R: DRIFT_DONE
-```
-
-The Rust node owns QUIC connections and ring all-reduce. When `--model-path` points to a `.py` file, the node spawns it as a subprocess with shared memory for zero-copy gradient transfer and stdin/stdout for control messages. PyTorch DDP's communication hook routes `allreduce()` calls through this IPC channel.
-
-All traffic is encrypted end-to-end via QUIC. NAT hole-punching is handled automatically by iroh, with relay fallback.
-
-## Project structure
+### CLI Binaries
 
 ```
-drift/
-  Cargo.toml              # Workspace
-  drift-node/             # Node binary
-    src/
-      main.rs             # CLI: join, status
-      gpu.rs              # GPU detection (nvidia-smi)
-      network.rs          # iroh endpoint, connection handling
-      training.rs         # Python training subprocess
-  drift-coord/            # Coordinator binary
-    src/
-      main.rs             # CLI: train
-      scheduler.rs        # Shard assignment by GPU capability
-      checkpoint.rs       # Checkpoint management
-      monitor.rs          # Health monitoring, progress display
-  drift-cli/              # Unified CLI binary
-    src/
-      main.rs             # CLI: join, train, status
-      node.rs             # Node logic (GPU, training, Python subprocess)
-      coord.rs            # Coordinator logic (sharding, monitoring)
-      shm.rs              # POSIX shared memory for Python IPC
-      ipc.rs              # Control message parsing for Python subprocess
-    tests/
-      test_python_ipc.rs  # Cross-language Rust↔Python integration test
-      helper_allreduce.py # Python helper for integration test
-  drift-proto/            # Shared protocol
-    src/
-      lib.rs              # Message types, framing, ALPN
-      allreduce.rs        # Ring all-reduce primitives
-      ring.rs             # Ring state machine + async QUIC all-reduce
-    tests/
-      integration.rs      # Full handshake test
-      training.rs         # End-to-end training pipeline
-      stress.rs           # Bulk message and gradient tests
-      ring_connect.rs     # Ring connectivity test (3-node)
-      ring_allreduce.rs   # Ring all-reduce over QUIC + stress tests
-  drift-python/            # Python package (PyTorch DDP backend)
-    drift/
-      __init__.py         # drift.init() — entry point, gloo + comm_hook setup
-      shm.py              # Shared memory (open, read, write)
-      allreduce.py        # Low-level allreduce via shm + stdio IPC
-      process_group.py    # DDP communication hook
-    tests/
-      test_shm.py         # Shared memory unit tests
-      test_ipc_roundtrip.py  # Python-side IPC round-trip test
-      test_process_group.py  # DDP integration test
-  examples/
-    mock_train.py          # Mock training script for testing
-    train_cifar.py         # Real DDP training (CIFAR-10 with drift)
-    train.yaml             # Example training config
+┌──────────────┐     ┌─────────────────┐     ┌───────────────────┐
+│  drift-cli   │     │   drift-node    │     │    drift-coord    │
+├────────────────────────────────────────────────────────────────┤
+│         Unified entry point (join/train/status)                │
+└──────────────┘     └─────────────────┘     └───────────────────┘
 ```
 
-## Quick start
+## Development Notes
 
-### Requirements
+### What's Removed
 
-- Rust 1.75+
-- NVIDIA GPU with drivers installed (optional, runs in CPU-only mode without)
+- All shared memory operations
+- Gradient synchronization and ring scatter-reduce
+- Allgather collectives
+- Torch Distributed / DDP functions
+- Tensor products shared over network
+- NVLink-aware tensor sharding
 
-### Build
+### What's Added
+
+- Apple device recognition and Metal GPU detection
+- Independent local training with checkpoint coordination
+- Periodic barrier sync without gradient exchange
+
+### Build Artifacts
+
+Drift builds to `target/release/`. Binary artifacts should be moved, copied, or symlinked to a static folder:
+
+```
+drift/target/release/drift           # Main CLI binary
+drift/target/release/drift-node      # Node binary
+drift/target/release/drift-coord     # Coordinator binary
+```
+
+On MacOS, building `drift` may require permission from `integration`, `stress`, and `training` packages.
+
+## Setup
+
+The library is managed by nocturne through `covn`, and otherwise remains independent of other libraries. Install using the root build command.
+
+## Minimum Requirements
+
+### Hardware
+
+- Any computer capable of running Rust with network connectivity:
+  - Apple M-series Mac with Metal GPU
+  - Linux PC with NVIDIA/AMD/Vulkan-compatible GPU
+  - Generic CPU-only system (limited throughput)
+
+### Software
+
+- [`just`](https://github.com/casey/just#packages) to build library
+- [Rust](https://rust-lang.org) 1.75+ toolchain
+
+### Experience
+
+- Familiarity with command-line interfaces (CLI)
+- Basic understanding of ML training loops
+
+## Usage Guide
+
+### Starting a Session as Coordinator
 
 ```sh
-cargo build --release
+# Start drift coordinator daemon
+drift coord --port 7842 &
 ```
 
-### Run a node
+### Joining as Training Peer
 
 ```sh
-# Using the unified CLI
-./target/release/drift join --name my-gpu-box
+# Join an existing COVEN session
+drift join --token eyJ...V19
 
-# Or the standalone binary
-./target/release/drift-node join --name my-gpu-box
+# Or specify peer nodes directly
+drift train --peers 4e110...,de4db33f --epochs 10
 ```
 
-### Start training (coordinator)
+### Monitoring Progress
 
 ```sh
-./target/release/drift train \
-  --peers <node_id_1>,<node_id_2> \
-  --model-path model.pt \
-  --dataset-path ./data \
-  --epochs 10 \
-  --batch-size 32
+# Check session status
+drift status
 ```
 
-### Resume from checkpoint
-
-```sh
-./target/release/drift train \
-  --peers <node_id_1>,<node_id_2> \
-  --resume \
-  --checkpoint-dir checkpoints/
-```
-
-### Check GPU status
-
-```sh
-./target/release/drift status
-```
-
-### Train with a real PyTorch script
-
-```sh
-# Install the drift Python package
-cd drift-python && pip install -e . && cd ..
-
-# Start training with a Python script
-./target/release/drift train \
-  --peers <node_id_1>,<node_id_2> \
-  --model-path examples/train_cifar.py \
-  --epochs 3 \
-  --batch-size 32
-```
-
-The training script uses standard PyTorch DDP:
-
-```python
-import drift
-from torch.nn.parallel import DistributedDataParallel as DDP
-
-drift.init()                    # opens shm, inits gloo, prints DRIFT_READY
-model = DDP(MyModel())
-drift.register(model)           # installs drift comm_hook for gradient sync
-# ... standard training loop, gradients flow through QUIC ring
-```
-
-### Debug logging
+### Debug Mode
 
 ```sh
 RUST_LOG=debug ./target/release/drift join
 ```
 
-## Protocol
+### Full Command Reference
 
-Messages are length-prefixed JSON over QUIC bidirectional streams.
+| Flag                      | Description                                       |
+| ------------------------- | ------------------------------------------------- |
+| `--join <token>`          | Join COVEN session via invitation token           |
+| `train`                   | Enter training mode as coordinated peer           |
+| `--peer <id>`             | Connect to specific peer node by ID               |
+| `--model-path <path>`     | Path to model checkpoint file (.pt, .safetensors) |
+| `--dataset-path <path>`   | Path to training dataset directory                |
+| `--epochs <n>`            | Number of training epochs (default: 10)           |
+| `--batch-size <n>`        | Batch size per step (default: 32)                 |
+| `--resume`                | Resume from last checkpoint                       |
+| `--checkpoint-dir <path>` | Directory for checkpoint files                    |
 
-### Coordinator-Node (ALPN: `drift/0`)
+## Build
 
-1. Coordinator connects to node, sends `Ping`
-2. Node responds with `NodeInfo` (GPU name, VRAM, compute capability)
-3. Coordinator sends `TrainConfig`, `ShardAssignment`, and `RingConfig`
-4. Coordinator sends `StartRing` — nodes establish peer-to-peer ring
-5. During training, nodes send `BarrierSync` per step, coordinator replies `BarrierReady`
-6. Node streams `TrainProgress` updates back
+From coven root folder:
 
-### Ring All-Reduce (ALPN: `drift-ring/0`)
+```
+just build-drift
+```
 
-Nodes form a logical ring (0 -> 1 -> 2 -> ... -> N-1 -> 0). Each node connects to its right neighbor and accepts from its left. Gradient synchronization uses the standard ring all-reduce algorithm:
+Or manually:
 
-1. **Scatter-reduce** (N-1 iterations): each node sends one chunk to the right, receives from the left, and accumulates. After this phase, each node holds the fully-reduced version of one chunk.
-2. **All-gather** (N-1 iterations): each node sends its reduced chunk around the ring so all nodes end up with the complete result.
-3. **Finalize**: divide by N to get the average.
+```
+cd drift
+cargo build --release
+ln -s <path/to/clone>/coven/drift/target/release/drift $HOME/.local/bin/drift
+ln -s <path/to/clone>/coven/drift/target/release/drift-coord $HOME/.local/bin/drift-coord
+ln -s <path/to/clone>/coven/drift/target/release/drift-node $HOME/.local/bin/drift-node
+```
 
-Sparse gradients (>50% zeros) are automatically compressed before sending.
+Restart shell after creating symlinks.
 
-## Milestones
+## Manual Installation
 
-- [x] Cargo workspace, iroh connectivity, message protocol
-- [x] GPU detection, node capability announcement
-- [x] Coordinator: peer management, shard scheduling
-- [x] Integration test: full handshake over local QUIC
-- [x] Unified CLI binary (`drift join`, `drift train`, `drift status`)
-- [x] Training execution with progress streaming
-- [x] Ring all-reduce primitives for gradient sync
-- [x] Sparse gradient compression
-- [x] Heartbeat loop and stale node detection
-- [x] Checkpointing: periodic save with resume support
-- [x] Fault tolerance: shard redistribution on node drops
-- [x] Stress tests for bulk messages and gradient payloads
-- [x] Gradient sync: ring all-reduce over QUIC streams
-- [x] Python bridge: PyTorch DDP backend (shm + stdio IPC, comm_hook)
-- [ ] Benchmarks vs standard DDP
+For development builds without covn:
 
-## License
+```sh
+# Clone and build
+git clone https://tangled.org/yzzxyz.roomy.chat/coven
+cd coven/drift
+cargo build --release
 
-MIT
+# Symlink binaries
+ln -s $PWD/target/release/drift $HOME/.local/bin/drift
+ln -s $PWD/target/release/drift-node $HOME/.local/bin/drift-node
+ln -s $PWD/target/release/drift-coord $HOME/.local/bin/drift-coord
+```
+
+Ensure `$HOME/.local/bin` is in your PATH.
+
+## Project Structure
+
+```
+drift/
+├── Cargo.toml              # Workspace manifest
+│
+├── drift-auth/             # Authentication library
+│   └── src/lib.rs          # Ed25519, token validation, LRU cache
+│
+├── drift-proto/            # Protocol definitions
+│   ├── src/lib.rs           # Message types, framing, ALPN "drift/0"
+│   └── tests/
+│       ├── integration.rs    # Full handshake test suite
+│       ├── training.rs      # End-to-end training pipeline
+│       └── stress.rs        # Bulk message and gradient tests
+│
+├── drift-coord/           # Coordinator binary
+│   └── src/
+│       ├── main.rs           # CLI: coord, train commands
+│       ├── scheduler.rs     # Shard assignment by GPU capability
+│       ├── checkpoint.rs     # Checkpoint management
+│       └── monitor.rs       # Health monitoring, progress display
+│
+├── drift-node/            # Node binary
+│   └── src/
+│       ├── main.rs          # CLI: join, status
+│       ├── gpu.rs           # GPU detection (nvidia-smi, apple metal)
+│       ├── network.rs      # iroh endpoint, connection handling
+│       └── training.rs     # Local training loop subprocess
+│
+├── drift-cli/              # Unified CLI entry point
+│   └── src/
+│       ├── main.rs          # CLI: join, train, status, coord
+│       ├── node.rs           # Node lifecycle logic
+│       └── coord.rs           # Coordinator logic
+│
+└── examples/
+    ├── mock_train.py       # Mock training script for testing
+    └── train.yaml           # Example training configuration
+```
+
+## Testing
+
+```sh
+# Run all tests
+cargo test --workspace
+
+# Or run specific library tests
+cd drift-proto && cargo test
+```

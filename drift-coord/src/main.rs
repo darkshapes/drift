@@ -131,6 +131,12 @@ async fn train(
         batch_size,
         learning_rate,
         epochs,
+        train_repo_url: None,
+        script_entrypoint: None,
+        dataset_repo_url: None,
+        model_artifact_ref: None,
+        enable_auth: false,
+        auth_threshold: 3,
     };
 
     let mut _checkpoint_mgr = checkpoint::CheckpointManager::new(&checkpoint_dir);
