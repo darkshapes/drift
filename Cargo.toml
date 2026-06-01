@@ -1,5 +1,11 @@
+[profile.dev]
+opt-level = 0
+
+[profile.release]
+opt-level = 3
+
 [workspace]
-members = ["drift-cli", "drift-node", "drift-coord", "drift-proto"]
+members = ["drift-cli", "drift-node", "drift-coord", "drift-proto", "drift-auth"]
 resolver = "2"
 
 [workspace.dependencies]
@@ -11,3 +17,8 @@ clap = { version = "4", features = ["derive"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 anyhow = "1"
+time = "0.3"
+sha2 = "0.10"
+ed25519-dalek = { version = "2", features = ["rand_core"] }
+rand = "0.8"
+thiserror = "1"

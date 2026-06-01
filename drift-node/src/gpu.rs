@@ -1,6 +1,114 @@
 use anyhow::Result;
 use tracing::{info, warn};
 
+#[cfg(target_os = "macos")]
+fn is_mac() -> bool { true }
+
+#[cfg(not(target_os = "macos"))]
+fn is_mac() -> bool { false }
+
+async fn detect_arch() -> Option<(String, u64)> {
+    let output = tokio::process::Command::new("sysctl")
+        .arg("-n")
+        .arg("hw.machine")
+        .output()
+        .await;
+
+    match output {
+        Ok(o) if o.status.success() => {
+            let arch = String::from_utf8_lossy(&o.stdout).trim().to_string();
+            if arch.starts_with("arm") {
+                let cpu_brand = detect_cpu_brand().await;
+                let mem_output = tokio::process::Command::new("sysctl")
+                    .args(["-n", "hw.memsize"])
+                    .output()
+                    .await;
+                match mem_output {
+                    Ok(m) if m.status.success() => {
+                        let mem_bytes: u64 =
+                            String::from_utf8_lossy(&m.stdout)
+                                .trim()
+                                .parse()
+                                .unwrap_or(0);
+                        Some((cpu_brand, mem_bytes))
+                    }
+                    _ => None,
+                }
+            } else {
+                None
+            }
+        }
+        _ => None,
+    }
+}
+
+async fn detect_cpu_brand() -> String {
+    let output = tokio::process::Command::new("sysctl")
+        .args(["-n", "machdep.cpu.brand_string"])
+        .output()
+        .await
+        .ok();
+
+    match output {
+        Some(o) if o.status.success() => {
+            String::from_utf8_lossy(&o.stdout).trim().to_string()
+        }
+        _ => String::new(),
+    }
+}
+
+fn parse_compute_capability(cpu_brand: &str) -> String {
+    let mut chip_letter = None;
+    let mut has_five = false;
+
+    for c in cpu_brand.chars() {
+        if c == 'M' || c == 'A' {
+            chip_letter = Some(c);
+        } else if c.is_ascii_digit() && c == '5' {
+            has_five = true;
+        }
+    }
+
+    let tier = cpu_brand.split(' ').last().unwrap_or("").to_lowercase();
+    let is_m5 = chip_letter == Some('M') && has_five;
+
+    if is_m5 && tier == "ultra" {
+        return "10".to_string();
+    }
+    if !is_m5 && tier == "ultra" {
+        return "8.9".to_string();
+    }
+    if tier == "max" || (chip_letter == Some('M') && tier != "pro") {
+        return "8.6".to_string();
+    }
+    if tier == "pro" || tier == "base" || (!tier.is_empty()) {
+        return "8.0".to_string();
+    }
+    "7.5".to_string()
+}
+
+pub async fn detect_gpu_info() -> Vec<GpuInfo> {
+    if !is_mac() {
+        return vec![];
+    }
+
+    let arch_data = detect_arch().await;
+
+    if let Some((cpu_brand, mem_bytes)) = arch_data {
+        let vram_mb: u64 = mem_bytes / 1024 / 1024;
+        let compute_capability = parse_compute_capability(&cpu_brand);
+        let chip_name = if cpu_brand.is_empty() { "Apple Silicon" } else { &cpu_brand };
+
+        return vec![GpuInfo {
+            name: chip_name.to_string(),
+            vram_mb,
+            compute_capability,
+        }];
+    }
+
+    vec![]
+}
+
 #[derive(Debug, Clone)]
 pub struct GpuInfo {
     pub name: String,

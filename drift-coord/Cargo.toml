@@ -5,11 +5,20 @@ edition = "2021"
 
 [dependencies]
 drift-proto = { path = "../drift-proto" }
+drift-auth = { path = "../drift-auth" }
 iroh = { workspace = true }
 tokio = { workspace = true }
-serde = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
-clap = { workspace = true }
-tracing = { workspace = true }
+tracing = { version = "0.1", features = ["log"] }
 tracing-subscriber = { workspace = true }
-anyhow = { workspace = true }
+anyhow.workspace = true
+clap.workspace = true
+
+time = { version = "0.3", default-features = false, features = ["serde"] }
+thiserror = "1"
+rand = "0.8"
+ed25519-dalek = { version = "2", features = ["rand_core"] }
+
+[dev-dependencies]
+temp-env = "0.3"
