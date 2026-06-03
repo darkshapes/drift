@@ -9,7 +9,7 @@ compatibility:
 
 # Drift
 
-Drift coordinates distributed model training across COVEN peer nodes using encrypted peer-to-peer (p2p) networking via [iroh](https://github.com/n0-computer/iroh). Unlike traditional distributed training that shares gradients and tensor products over the network, each node trains independently at its own pace without synchronization overhead.
+Drift coordinates distributed model training across geo-distributed COVEN peer nodes using encrypted peer-to-peer (p2p) networking via [iroh](https://github.com/n0-computer/iroh). Unlike traditional distributed training that shares gradients and tensor products over the network, each node trains independently at its own pace without behaving as if it were a tight synchronization datacenter cluster.
 
 ## Overview
 
@@ -25,11 +25,11 @@ Distributed training coordination for consumer hardware (GPUs and CPUs) that:
 ## End-to-End Operation
 
 ```
-┌─────────────┐     ┌─────────────┐     ┌─────────────┐
-│ Coordinator  │◄───│   Node A    │◄───│   Node B     │
-└─────────────┘     └─────────────┘     └─────────────┘
-        │                     │                     │
-   ALPN: drift/0         ping/pong           TrainConfig/ShardAssignment
+┌─────────────┐    ┌───────────┐    ┌─────────────┐
+│ Coordinator │◄───│  Node A   │◄───│    Node B   │
+└─────────────┘    └───────────┘    └─────────────┘
+        │               │                     │
+   ALPN: drift/0    ping/pong           TrainConfig/ShardAssignment
 ```
 
 ### Protocol Flow (ALPN: `drift/0`)
@@ -55,7 +55,7 @@ All traffic is encrypted end-to-end via QUIC. NAT hole-punching is handled autom
 | [drift-auth](../drift-auth/)   | Ed25519 key generation, signing, token validation, LRU cache |
 | [drift-proto](../drift-proto/) | Message types, serialization, protocol framing, ALPN         |
 | [drift-coord](../drift-coord/) | Peer discovery, session negotiation, training orchestration  |
-| [drift-node](../drift-node/)   | COVEN node runtime, VRAM tracking, status monitoring         |
+| [drift-node](../drift-node/)   | node runtime, VRAM tracking, status monitoring               |
 
 ### CLI Binaries
 
@@ -131,7 +131,7 @@ drift coord --port 7842 &
 ### Joining as Training Peer
 
 ```sh
-# Join an existing COVEN session
+# Join an existing session
 drift join --token eyJ...V19
 
 # Or specify peer nodes directly
@@ -155,7 +155,7 @@ RUST_LOG=debug ./target/release/drift join
 
 | Flag                      | Description                                       |
 | ------------------------- | ------------------------------------------------- |
-| `--join <token>`          | Join COVEN session via invitation token           |
+| `--join <token>`          | Join session via invitation token                 |
 | `train`                   | Enter training mode as coordinated peer           |
 | `--peer <id>`             | Connect to specific peer node by ID               |
 | `--model-path <path>`     | Path to model checkpoint file (.pt, .safetensors) |
@@ -167,7 +167,7 @@ RUST_LOG=debug ./target/release/drift join
 
 ## Build
 
-From coven root folder:
+From root folder:
 
 ```
 just build-drift
@@ -178,16 +178,23 @@ Or manually:
 ```
 cd drift
 cargo build --release
-ln -s <path/to/clone>/coven/drift/target/release/drift $HOME/.local/bin/drift
-ln -s <path/to/clone>/coven/drift/target/release/drift-coord $HOME/.local/bin/drift-coord
-ln -s <path/to/clone>/coven/drift/target/release/drift-node $HOME/.local/bin/drift-node
+ln -s <path/to/clone>/target/release/drift $HOME/.local/bin/drift
+ln -s <path/to/clone>/target/release/drift-coord $HOME/.local/bin/drift-coord
+ln -s <path/to/clone>/target/release/drift-node $HOME/.local/bin/drift-node
 ```
 
 Restart shell after creating symlinks.
 
 ## Manual Installation
 
-For development builds without covn:
+````sh
+# Clone and build
+git clone https://github/com/darkshapes/drift
+cd drift
+cargo build --release
+
+
+For development builds with covn:
 
 ```sh
 # Clone and build
@@ -199,7 +206,7 @@ cargo build --release
 ln -s $PWD/target/release/drift $HOME/.local/bin/drift
 ln -s $PWD/target/release/drift-node $HOME/.local/bin/drift-node
 ln -s $PWD/target/release/drift-coord $HOME/.local/bin/drift-coord
-```
+````
 
 Ensure `$HOME/.local/bin` is in your PATH.
 

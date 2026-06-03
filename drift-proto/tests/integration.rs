@@ -140,6 +140,7 @@ mod auth_integration_tests {
             model_artifact_ref: None,
             enable_auth: true,
             auth_threshold: 5usize,
+            git_commit: None,
         };
         assert!(config.enable_auth);
         assert_eq!(config.auth_threshold, 5);
@@ -159,6 +160,7 @@ mod auth_integration_tests {
             model_artifact_ref: None,
             enable_auth: true,
             auth_threshold: 3usize,
+            git_commit: None,
         };
         let json = serde_json::to_string(&config).unwrap();
         let parsed: TrainConfig = serde_json::from_str(&json).unwrap();
@@ -259,7 +261,7 @@ mod auth_integration_tests {
 
     #[test]
     fn test_auth_handshake_flow_auth_disabled() {
-        let config = TrainConfig {
+      let config = TrainConfig {
             model_path: "/model".to_string(),
             dataset_path: "/data".to_string(),
             batch_size: 32u32,
@@ -269,8 +271,9 @@ mod auth_integration_tests {
             script_entrypoint: None,
             dataset_repo_url: None,
             model_artifact_ref: None,
-            enable_auth: false,
+            enable_auth: true,
             auth_threshold: 3usize,
+            git_commit: None,
         };
         assert!(!config.enable_auth);
     }
@@ -289,6 +292,7 @@ mod auth_integration_tests {
             model_artifact_ref: None,
             enable_auth: true,
             auth_threshold: 3usize,
+            git_commit: None,
         };
         assert!(config.enable_auth);
         assert_eq!(config.auth_threshold, 3);

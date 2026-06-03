@@ -247,6 +247,8 @@ impl fmt::Display for DriftMessage {
             Self::AuthChallenge(msg) => write!(f, "AuthChallenge(node={}, seq={})", msg.node_id, msg.sequence),
             Self::AuthResponse(signed) => write!(f, "AuthResponse(node={}, sig_len={})", signed.node_id, signed.signature.len()),
             Self::AuthAggregate(agg) => write!(f, "AuthAggregate(threshold={}/{}, nodes={})", agg.threshold, agg.total_nodes, agg.node_ids.len()),
+            Self::TrainingReady => write!(f, "TrainingReady"),
+            Self::RepoCommit(rc) => write!(f, "RepoCommit(commit={}, repo={})", &rc.commit[..8.min(rc.commit.len())], rc.repo_url),
         }
     }
 }
@@ -281,12 +283,16 @@ pub struct TrainConfig {
     #[serde(default)]
     pub model_artifact_ref: Option<String>,
 
-    /// Enable multi-signature authentication
+   /// Enable multi-signature authentication
     #[serde(default)]
     pub enable_auth: bool,
 
-    /// Threshold for signature aggregation (e.g., 3 for 3-of-n)
+    /// Threshold for signature aggregation (e.g., 3 for 3-of-n).
     pub auth_threshold: usize,
+
+    /// Agreed-upon git commit hash (set by coordinator after verification).
+    #[serde(default)]
+    pub git_commit: Option<String>,
 }
 
 /// Shard assignment for a specific node.
@@ -337,6 +343,14 @@ pub struct CheckpointInfo {
     pub nodes_contributed: Vec<String>,
 }
 
+/// Git commit verification message.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RepoCommit {
+    pub commit: String,
+    pub repo_url: String,
+    pub signature: Vec<u8>,
+}
+
 /// All messages exchanged between drift nodes.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum DriftMessage {
@@ -351,6 +365,12 @@ pub enum DriftMessage {
     Heartbeat { uptime_secs: u64 },
     /// Coordinator signals training is complete.
     TrainComplete,
+    
+    /// Coordinator signals nodes to begin training (after commit verification).
+    TrainingReady,
+    
+    /// Node sends commit info for verification.
+    RepoCommit(RepoCommit),
     
     AskForMoreWork,
     NoMoreWork,
