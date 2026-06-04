@@ -121,6 +121,7 @@ async fn test_training_pipeline() {
             model_artifact_ref: None,
             enable_auth: false,
             auth_threshold: 3,
+            git_commit: None,
         }),
     )
     .await

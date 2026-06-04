@@ -248,6 +248,7 @@ impl fmt::Display for DriftMessage {
             Self::AuthResponse(signed) => write!(f, "AuthResponse(node={}, sig_len={})", signed.node_id, signed.signature.len()),
             Self::AuthAggregate(agg) => write!(f, "AuthAggregate(threshold={}/{}, nodes={})", agg.threshold, agg.total_nodes, agg.node_ids.len()),
             Self::TrainingReady => write!(f, "TrainingReady"),
+            Self::TrainingCancel(c) => write!(f, "TrainingCancel(reason={}, time={}, repo={})", c.reason, c.time, c.repo_url),
             Self::RepoCommit(rc) => write!(f, "RepoCommit(commit={}, repo={})", &rc.commit[..8.min(rc.commit.len())], rc.repo_url),
         }
     }
@@ -351,6 +352,20 @@ pub struct RepoCommit {
     pub signature: Vec<u8>,
 }
 
+/// Training cancellation message from coordinator.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TrainingCancel {
+    pub reason: String,
+    pub time: String,
+    pub repo_url: String,
+}
+
+impl fmt::Display for TrainingCancel {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "TrainingCancel(reason={}, time={}, repo={})", self.reason, self.time, self.repo_url)
+    }
+}
+
 /// All messages exchanged between drift nodes.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum DriftMessage {
@@ -368,7 +383,10 @@ pub enum DriftMessage {
     
     /// Coordinator signals nodes to begin training (after commit verification).
     TrainingReady,
-    
+
+    /// Coordinator broadcasts: commit verification failed, abort.
+    TrainingCancel(TrainingCancel),
+
     /// Node sends commit info for verification.
     RepoCommit(RepoCommit),
     

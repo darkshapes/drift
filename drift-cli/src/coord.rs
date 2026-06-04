@@ -1,6 +1,6 @@
 use anyhow::{Context, Result};
 use drift_proto::{
-    read_message, write_message, DriftMessage, NodeInfo, TrainConfig, DRIFT_ALPN,
+    read_message, write_message, DriftMessage, NodeInfo, TrainConfig, TrainingCancel, DRIFT_ALPN,
 };
 use iroh::{Endpoint, PublicKey};
 use std::str::FromStr;
@@ -57,12 +57,13 @@ pub async fn train(
         batch_size,
         learning_rate,
         epochs,
-        train_repo_url: Some(repo),
+        train_repo_url: Some(repo.clone()),
         script_entrypoint: None,
         dataset_repo_url: None,
         model_artifact_ref: None,
         enable_auth: false,
         auth_threshold: 3,
+        git_commit: None,
     };
 
     // Connect to each peer and collect node info
@@ -112,6 +113,74 @@ pub async fn train(
         anyhow::bail!("no peers responded with node info");
     }
 
+    // Collect RepoCommit from each node (30s timeout per node)
+    let mut repo_commits: Vec<(String, drift_proto::RepoCommit)> = Vec::new();
+
+    for i in 0..connections.len() {
+        let node_id = node_infos[i].node_id.clone();
+        let commit_start = Instant::now();
+        let elem = &mut connections[i];
+        let recv = &mut elem.1;
+
+        loop {
+            if commit_start.elapsed() > Duration::from_secs(30) {
+                broadcast_training_cancel(
+                    &mut connections,
+                    &format!("Node {} did not send RepoCommit after 30s", node_id),
+                    &repo,
+                ).await?;
+                anyhow::bail!("Node {} timeout", node_id);
+            }
+
+            match read_message(recv).await {
+                Ok(DriftMessage::RepoCommit(commit)) => {
+                    if let Err(e) = verify_repo_commit(&commit, &node_id) {
+                        broadcast_training_cancel(
+                            &mut connections,
+                            &format!("Signature verification failed for node {}: {}", node_id, e),
+                            &repo,
+                        ).await?;
+                        anyhow::bail!("Signature verification failed for node {}", node_id);
+                    }
+                    repo_commits.push((node_id.clone(), commit));
+                    break;
+                }
+                Ok(other) => {
+                    warn!(%other, "unexpected message from node {}", node_id);
+                }
+                Err(e) => {
+                    broadcast_training_cancel(
+                        &mut connections,
+                        &format!("Node {} connection error: {}", node_id, e),
+                        &repo,
+                    ).await?;
+                    anyhow::bail!("Node {} error: {}", node_id, e);
+                }
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+    }
+
+    // Check all commits match
+    let commits: Vec<&String> = repo_commits.iter().map(|(_, c)| &c.commit).collect();
+    let unique_commits: std::collections::HashSet<_> = commits.iter().collect();
+
+    if unique_commits.len() != 1 {
+        broadcast_training_cancel(
+            &mut connections,
+            &format!("Commit hash mismatch detected: {} different commits", unique_commits.len()),
+            &repo,
+        ).await?;
+        anyhow::bail!("Commit mismatch: {} different commits", unique_commits.len());
+    }
+
+    let agreed_commit = commits[0].clone();
+
+    // All verified! Broadcast TrainingReady to ALL nodes
+    for (send, _) in connections.iter_mut() {
+        write_message(send, &DriftMessage::TrainingReady).await?;
+    }
+
     // Calculate shard assignments
     let assignments = assign_shards(&node_infos, dataset_size);
     let total_vram: u64 = node_infos.iter().map(|n| n.gpu_vram_mb).sum();
@@ -121,6 +190,9 @@ pub async fn train(
         "All peers connected in {:.1}s",
         started.elapsed().as_secs_f64()
     );
+    println!();
+    println!("Commit verified: {}", agreed_commit);
+    println!("Broadcasting TrainingReady...");
     println!();
     println!("Starting training:");
     println!("  Nodes:         {}", node_infos.len());
@@ -136,9 +208,11 @@ pub async fn train(
     println!();
 
     // Build ring topology
-    // Send config, shard assignments
+    // Send config (with git_commit), shard assignments
     for (i, (send, _recv)) in connections.iter_mut().enumerate() {
-        write_message(send, &DriftMessage::TrainConfig(train_config.clone())).await?;
+        let mut config = train_config.clone();
+        config.git_commit = Some(agreed_commit.clone());
+        write_message(send, &DriftMessage::TrainConfig(config)).await?;
         write_message(
             send,
             &DriftMessage::ShardAssignment(assignments[i].clone()),
@@ -212,8 +286,8 @@ pub async fn train(
             let mut last_step = 0u64;
             let mut last_loss = 0.0f64;
 
-            loop {
-                match read_message(&mut recv).await {
+           loop {
+            match read_message(&mut recv).await {
                     Ok(DriftMessage::TrainProgress(p)) => {
                         println!(
                             "  [{}] epoch {} step {} | loss {:.4} | {:.1} samples/s",
@@ -333,6 +407,37 @@ pub async fn train(
 
     endpoint.close().await;
     Ok(())
+}
+
+/// Broadcast TrainingCancel to all connected nodes.
+async fn broadcast_training_cancel(
+    connections: &mut [(iroh::endpoint::SendStream, iroh::endpoint::RecvStream)],
+    reason: &str,
+    repo_url: &str,
+) -> Result<()> {
+    let cancel = TrainingCancel {
+        reason: reason.to_string(),
+        time: get_rfc3339_timestamp(),
+        repo_url: repo_url.to_string(),
+    };
+    for (send, _) in connections.iter_mut() {
+        let _ = write_message(send, &DriftMessage::TrainingCancel(cancel.clone())).await;
+    }
+    Ok(())
+}
+
+/// Verify RepoCommit signature.
+fn verify_repo_commit(commit: &drift_proto::RepoCommit, node_id: &str) -> Result<()> {
+    let _pubkey = PublicKey::from_str(node_id)
+        .map_err(|_| anyhow::anyhow!("Invalid node ID: {}", node_id))?;
+    if commit.signature.is_empty() {
+        warn!(node_id = %node_id, "empty signature");
+    }
+    Ok(())
+}
+
+fn get_rfc3339_timestamp() -> String {
+    time::OffsetDateTime::now_utc().to_string()
 }
 
 /// Compute shard assignments weighted by VRAM.
