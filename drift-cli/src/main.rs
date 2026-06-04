@@ -27,9 +27,9 @@ enum Commands {
 
     /// Start a training run across peer nodes
     Train {
-        /// Git URL to clone (required for authentication)
+        /// Git URL to clone (optional - uses cached value if omitted)
         #[arg(long)]
-        repo: String,
+        repo: Option<String>,
 
         /// Comma-separated list of peer node IDs
         #[arg(long, value_delimiter = ',')]

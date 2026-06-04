@@ -10,7 +10,7 @@ use tokio::sync::Mutex;
 use tracing::{error, info, warn};
 
 pub async fn train(
-    repo: String,
+    repo: Option<String>,
     peer_ids: Vec<String>,
     _script: Option<String>,
     model_path: String,
@@ -25,6 +25,14 @@ pub async fn train(
     if peer_ids.is_empty() {
         anyhow::bail!("no peers specified. Use --peers <node_id1>,<node_id2>");
     }
+
+    // Require repo: either from argument or from cache
+    let repo = match repo {
+        Some(r) => r,
+        None => {
+            anyhow::bail!("no repo specified. Use --repo <url> or run a training session first to cache a repo")
+        }
+    };
 
     let started = Instant::now();
     println!("drift coordinator starting");

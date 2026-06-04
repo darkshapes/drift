@@ -1,2 +1,4 @@
 /target
 .opencode/.DS_Store
+.atomic
+.vault
