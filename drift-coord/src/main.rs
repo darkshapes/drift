@@ -137,6 +137,7 @@ async fn train(
         model_artifact_ref: None,
         enable_auth: false,
         auth_threshold: 3,
+        git_commit: None,
     };
 
     let mut _checkpoint_mgr = checkpoint::CheckpointManager::new(&checkpoint_dir);
