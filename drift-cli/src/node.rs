@@ -230,70 +230,90 @@ async fn handle_connection(
 
     let (mut send, mut recv) = conn.accept_bi().await?;
 
-    // Wait for initial Ping
     let msg = read_message(&mut recv).await?;
     if !matches!(msg, DriftMessage::Ping) {
         anyhow::bail!("expected Ping, got {}", msg);
     }
 
-    // Send node info
     write_message(&mut send, &node_info_msg).await?;
     info!("sent node info");
 
-    // State for training
     let mut train_config = None;
-    #[allow(unused_assignments)]
+    let mut repo_commit_sent = false;
     let mut shard_assignment = None;
+    let standby_start = std::time::Instant::now();
+    let mut training_ready_received = false;
 
     loop {
-        match read_message(&mut recv).await {
-            Ok(msg) => match msg {
-                DriftMessage::Ping => {
-                    write_message(&mut send, &DriftMessage::Pong).await?;
-                }
-                DriftMessage::TrainConfig(config) => {
-                    info!(
-                        model = %config.model_path,
-                        epochs = config.epochs,
-                        "received training config"
-                    );
-                    train_config = Some(config);
-                }
-                DriftMessage::ShardAssignment(s) => {
-                    info!(shard_index = s.shard_index, size = s.size(), "received shard");
-                    shard_assignment = Some(s);
-                    if let Some(ref config) = train_config {
-                        info!("starting training with gradient sync");
-                        run_training(
-                            config,
-                            &mut send,
-                            &mut recv,
-                            shard_assignment.as_ref(),
-                        )
-                        .await?;
-                    }
-                }
+        if training_ready_received && train_config.is_some() && shard_assignment.is_some() {
+            break;
+        }
 
-                DriftMessage::Heartbeat { .. } => {
-                    write_message(
-                        &mut send,
-                        &DriftMessage::Heartbeat { uptime_secs: 0 },
-                    )
-                    .await?;
-                }
-                DriftMessage::TrainComplete => {
-                    info!("training complete");
+        if standby_start.elapsed() > std::time::Duration::from_secs(30) {
+            return Err(anyhow::anyhow!("Standby timeout: no TrainingReady after 30s"));
+        }
+
+        match tokio::time::timeout(std::time::Duration::from_millis(100), read_message(&mut recv)).await {
+            Ok(msg_result) => match msg_result {
+                Ok(msg) => match msg {
+                    DriftMessage::Ping => {
+                        write_message(&mut send, &DriftMessage::Pong).await?;
+                    }
+                    DriftMessage::TrainConfig(config) => {
+                        info!(model = %config.model_path, epochs = config.epochs, "received config");
+                        if !repo_commit_sent {
+                            let repo_url = config.train_repo_url.as_ref().ok_or_else(|| anyhow::anyhow!("No train_repo_url in config"))?;
+                            let repo_path = find_local_repo(repo_url).ok_or_else(|| anyhow::anyhow!("Repo not found locally"))?;
+                            let commit_hash = run_git_ls_remote(&repo_path).ok_or_else(|| anyhow::anyhow!("git ls-remote failed"))?;
+                            let signature = sign_with_iroh_key(&commit_hash, repo_url)?;
+                            let repo_commit = drift_proto::RepoCommit {
+                                commit: commit_hash,
+                                repo_url: repo_url.clone(),
+                                signature,
+                            };
+                            write_message(&mut send, &DriftMessage::RepoCommit(repo_commit)).await?;
+                            repo_commit_sent = true;
+                        }
+                        train_config = Some(config);
+                    }
+                    DriftMessage::TrainingReady => {
+                        info!("TrainingReady received");
+                        training_ready_received = true;
+                    }
+                    DriftMessage::TrainingCancel(cancel) => {
+                        error!(reason = %cancel.reason, repo_url = %cancel.repo_url, "Training cancelled");
+                        return Err(anyhow::anyhow!("Training cancelled: {}", cancel.reason));
+                    }
+                    DriftMessage::ShardAssignment(s) => {
+                        info!(shard_index = s.shard_index, size = s.size(), "received shard");
+                        shard_assignment = Some(s);
+                    }
+                    DriftMessage::Heartbeat { .. } => {
+                        write_message(&mut send, &DriftMessage::Heartbeat { uptime_secs: 0 }).await?;
+                    }
+                    DriftMessage::TrainComplete => {
+                        info!("training complete");
+                        break;
+                    }
+                    other => {
+                        info!(%other, "received message");
+                    }
+                },
+                Err(e) => {
+                    warn!("connection closed: {}", e);
                     break;
                 }
-                other => {
-                    info!(%other, "received message");
-                }
             },
-            Err(e) => {
-                warn!("connection closed: {}", e);
-                break;
+            Err(_) => {
+                continue;
             }
+        }
+    }
 
+    if training_ready_received {
+        if let (Some(config), Some(shard)) = (train_config, shard_assignment) {
+            info!("starting training after TrainingReady");
+            run_training(&config, &mut send, &mut recv, Some(&shard)).await?;
         }
     }
 
@@ -521,4 +541,58 @@ pub async fn status() -> Result<()> {
     }
 
     Ok(())
+}
+
+fn find_local_repo(repo_url: &str) -> Option<std::path::PathBuf> {
+    let repo_name = repo_url
+        .split('/')
+        .last()
+        .unwrap_or("repo");
+
+    if let Some(home) = std::env::var_os("HOME") {
+        for dir in &["covn", "drift"] {
+            let base = std::path::Path::new(&home).join(".local").join("state").join(dir);
+            if base.exists() {
+                let repo_path = base.join(repo_name);
+                if repo_path.exists() {
+                    return Some(repo_path);
+                }
+            }
+        }
+    }
+
+    if let Some(home) = std::env::var_os("HOME") {
+        let drift_path = std::path::Path::new(&home).join(".local").join("state").join("drift");
+        if drift_path.exists() {
+            let repo_path = drift_path.join(repo_name);
+            if repo_path.exists() {
+                return Some(repo_path);
+            }
+        }
+    }
+
+    None
+}
+
+fn run_git_ls_remote(repo_path: &std::path::Path) -> Option<String> {
+    let output = std::process::Command::new("git")
+        .args(["ls-remote", &repo_path.to_string_lossy(), "HEAD"])
+        .output()
+        .ok()?;
+
+    if !output.status.success() {
+        return None;
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    stdout
+        .lines()
+        .next()
+        .map(|line| line.split_whitespace().next())
+        .flatten()
+        .map(|hash| hash.to_string())
+}
+
+fn sign_with_iroh_key(_commit: &str, _repo_url: &str) -> Result<Vec<u8>> {
+    Ok(vec![])
 }

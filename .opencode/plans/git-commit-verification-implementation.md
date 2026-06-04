@@ -15,88 +15,27 @@ This plan implements a strict commit verification protocol where:
 
 ## Testing Strategy
 
-### Test 1: All nodes with same commit
-
-- Setup: 2 nodes, both with commit "abc123"
-- Expected: Coordinator broadcasts TrainingReady, nodes proceed to training
-
-### Test 2: Nodes with different commits
-
-- Setup: Node A has "abc123", Node B has "def456"
-- Expected: Coordinator sends TrainingCancel with "Commit hash mismatch" to ALL nodes
-
-### Test 3: Invalid signature
-
-- Setup: Node sends RepoCommit with fake signature
-- Expected: Coordinator sends TrainingCancel with "unauthorized" to ALL nodes
-
-### Test 4: Node timeout (no RepoCommit)
-
-- Setup: Node does not send RepoCommit within 30s
-- Expected: Coordinator sends TrainingCancel with timeout reason to ALL nodes
-
-### Test 5: Coordinator crash before TrainingReady
-
-- Setup: Coordinator exits without sending TrainingReady
-- Expected: Nodes timeout after 30s, error with "Standby timeout"
-
-### Test 6: Fresh git ls-remote every time
-
-- Setup: Change commit between two node joins
-- Expected: Second join uses new commit, not cached value
+| Test | Description                            | Expected Outcome                                                          |
+| ---- | -------------------------------------- | ------------------------------------------------------------------------- |
+| 1    | All nodes with same commit             | Coordinator broadcasts TrainingReady, nodes proceed to training           |
+| 2    | Nodes with different commits           | Coordinator sends TrainingCancel with "Commit hash mismatch" to ALL nodes |
+| 3    | Invalid signature                      | Coordinator sends TrainingCancel with "unauthorized" to ALL nodes         |
+| 4    | Node timeout (no RepoCommit)           | Coordinator sends TrainingCancel with timeout reason to ALL nodes         |
+| 5    | Coordinator crash before TrainingReady | Nodes timeout after 30s, error with "Standby timeout"                     |
+| 6    | Fresh git ls-remote every time         | Second join uses new commit, not cached value                             |
 
 ---
 
 ## Implementation Order
 
-1. **Phase 1: Protocol changes** (`drift-proto/src/lib.rs`)
-   - Add `TrainingCancel` struct
-   - Add `TrainingCancel` variant to `DriftMessage`
-   - Update `Display` implementations
+### Phase 1: Protocol Changes ☐ (`drift-proto/src/lib.rs`)
 
-2. **Phase 2: Node changes** (`drift-cli/src/node.rs`)
-   - Modify `handle_connection()` to wait for TrainingReady
-   - Add `find_local_repo()` helper
-   - Add `run_git_ls_remote()` helper
-   - Add `sign_with_iroh_key()` helper
-
-3. **Phase 3: Coordinator changes** (`drift-cli/src/coord.rs`)
-   - Modify `train()` to collect RepoCommit before sending config
-   - Add `broadcast_training_cancel()` helper
-   - Add `verify_repo_commit()` helper
-
-4. **Phase 4: Tests** (`drift-proto/tests/repo_commit_verification.rs`)
-   - Add integration tests for new flow
-   - Add timeout tests
-   - Add mismatch tests
-
----
-
-## Protocol Message Flow
-
-```
-Node                              Coordinator
-  |                                   |
-  |--- (connect) -------------------->|
-  |<-- (accept) ---------------------|
-  |--- Ping ------------------------>|
-  |<-- NodeInfo --------------------|
-  |--- RepoCommit ------------------>| (sent immediately after NodeInfo)
-  |                                   | (collect from all nodes)
-  |                                   | (verify signatures)
-  |                                   | (check all commits match)
-  |<-- TrainingReady OR Cancel ------| (broadcast to ALL)
-  |<-- TrainingCancel --------------->| (if any failure)
-  |                                   |
-  | (30s standby timeout)            |
-  |                                   | (process ends after cancel)
-```
-
----
-
-## Required Changes
-
-### File 1: `drift-proto/src/lib.rs`
+| Step | Description                                         | Completion | Code Lines    |
+| ---- | --------------------------------------------------- | ---------- | ------------- |
+| 1.1  | Add `TrainingCancel` struct                         | [ ]        | ~line 348-350 |
+| 1.2  | Add `TrainingCancel` variant to `DriftMessage` enum | [ ]        | ~line 387     |
+| 1.3  | Update `fmt::Display` implementations               | [ ]        | ~line 251     |
+| 1.4  | Add `RepoCommit` struct (if not existing)           | [ ]        | ~existing     |
 
 #### Add `TrainingCancel` struct (after line 348, before `DriftMessage` enum)
 
@@ -141,7 +80,16 @@ Self::RepoCommit(rc) => write!(f, "RepoCommit(commit={}, repo={})",
 
 ---
 
-### File 2: `drift-cli/src/node.rs`
+### Phase 2: Node Changes ☐ (`drift-cli/src/node.rs`)
+
+| Step | Description                                                       | Completion | Code Lines     |
+| ---- | ----------------------------------------------------------------- | ---------- | -------------- |
+| 2.1  | Modify `handle_connection()` to send RepoCommit after TrainConfig | [ ]        | lines 223-299  |
+| 2.2  | Add 30s standby timeout for TrainingReady                         | [ ]        | lines 285-289  |
+| 2.3  | Handle TrainingCancel message                                     | [ ]        | lines 246-250  |
+| 2.4  | Add `find_local_repo()` helper                                    | [ ]        | after line 524 |
+| 2.5  | Add `run_git_ls_remote()` helper                                  | [ ]        | after line 524 |
+| 2.6  | Add `sign_with_iroh_key()` helper                                 | [ ]        | after line 524 |
 
 #### Modify `handle_connection()` function (lines 223-299)
 
@@ -368,7 +316,18 @@ fn sign_with_iroh_key(commit: &str, repo_url: &str) -> anyhow::Result<Vec<u8>> {
 
 ---
 
-### File 3: `drift-cli/src/coord.rs`
+### Phase 3: Coordinator Changes ☐ (`drift-cli/src/coord.rs`)
+
+| Step | Description                                           | Completion | Code Lines     |
+| ---- | ----------------------------------------------------- | ---------- | -------------- |
+| 3.1  | Modify `train()` to collect RepoCommit after NodeInfo | [ ]        | lines 13-336   |
+| 3.2  | Add 30s timeout per node for RepoCommit collection    | [ ]        | lines 487-526  |
+| 3.3  | Add `broadcast_training_cancel()` helper              | [ ]        | after line 571 |
+| 3.4  | Add `verify_repo_commit()` helper                     | [ ]        | after line 589 |
+| 3.5  | Verify all signatures                                 | [ ]        | lines 503-509  |
+| 3.6  | Check all commits match                               | [ ]        | lines 528-540  |
+| 3.7  | Broadcast TrainingReady to ALL nodes                  | [ ]        | lines 544-547  |
+| 3.8  | Include git_commit in TrainConfig                     | [ ]        | lines 560-566  |
 
 #### Modify `train()` function (lines 13-336)
 
@@ -597,6 +556,84 @@ fn verify_repo_commit(commit: &RepoCommit, node_id: &str) -> Result<()> {
     Ok(())
 }
 ```
+
+---
+
+### Phase 4: Tests ☐ (`drift-proto/tests/repo_commit_verification.rs`)
+
+| Step | Description                                        | Completion | Code Lines |
+| ---- | -------------------------------------------------- | ---------- | ---------- |
+| 4.1  | Add integration tests for new flow                 | [ ]        | new file   |
+| 4.2  | Add Test 1: All nodes with same commit             | [ ]        | new tests  |
+| 4.3  | Add Test 2: Nodes with different commits           | [ ]        | new tests  |
+| 4.4  | Add Test 3: Invalid signature                      | [ ]        | new tests  |
+| 4.5  | Add Test 4: Timeout tests                          | [ ]        | new tests  |
+| 4.6  | Add Test 5: Coordinator crash before TrainingReady | [ ]        | new tests  |
+| 4.7  | Add Test 6: Fresh git ls-remote every time         | [ ]        | new tests  |
+
+#### Test structure
+
+```rust
+#[tokio::test]
+async fn test_all_nodes_same_commit() {
+    // Setup: 2 nodes, both with commit "abc123"
+    // Expected: Coordinator broadcasts TrainingReady, nodes proceed to training
+}
+
+#[tokio::test]
+async fn test_different_commits() {
+    // Setup: Node A has "abc123", Node B has "def456"
+    // Expected: Coordinator sends TrainingCancel with "Commit hash mismatch" to ALL nodes
+}
+
+#[tokio::test]
+async fn test_invalid_signature() {
+    // Setup: Node sends RepoCommit with fake signature
+    // Expected: Coordinator sends TrainingCancel with "unauthorized" to ALL nodes
+}
+
+#[tokio::test]
+async fn test_node_timeout() {
+    // Setup: Node does not send RepoCommit within 30s
+    // Expected: Coordinator sends TrainingCancel with timeout reason to ALL nodes
+}
+
+#[tokio::test]
+async fn test_coordinator_crash_before_training_ready() {
+    // Setup: Coordinator exits without sending TrainingReady
+    // Expected: Nodes timeout after 30s, error with "Standby timeout"
+}
+
+#[tokio::test]
+async fn test_fresh_git_ls_remote() {
+    // Setup: Change commit between two node joins
+    // Expected: Second join uses new commit, not cached value
+}
+```
+
+---
+
+## Protocol Message Flow
+
+```
+Node                              Coordinator
+  |                                   |
+  |--- (connect) -------------------->|
+  |<-- (accept) ----------------------|
+  |--- Ping ------------------------->|
+  |<-- NodeInfo ----------------------|
+  |--- RepoCommit ------------------->| (sent immediately after NodeInfo)
+  |                                   | (collect from all nodes)
+  |                                   | (verify signatures)
+  |                                   | (check all commits match)
+  |<-- TrainingReady OR Cancel -------| (broadcast to ALL)
+  |<-- TrainingCancel --------------->| (if any failure)
+  |                                   |
+  | (30s standby timeout)             |
+  |                                   | (process ends after cancel)
+```
+
+---
 
 ## Summary
 
