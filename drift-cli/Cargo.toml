@@ -7,6 +7,10 @@ edition = "2021"
 name = "drift"
 path = "src/main.rs"
 
+[lib]
+name = "drift_cli"
+path = "src/lib.rs"
+
 [dependencies]
 drift-proto = { path = "../drift-proto" }
 iroh = { workspace = true }

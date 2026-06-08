@@ -543,30 +543,35 @@ pub async fn status() -> Result<()> {
     Ok(())
 }
 
-fn find_local_repo(repo_url: &str) -> Option<std::path::PathBuf> {
+pub fn find_local_repo(repo_url: &str) -> Option<std::path::PathBuf> {
     let repo_name = repo_url
         .split('/')
         .last()
         .unwrap_or("repo");
 
-    if let Some(home) = std::env::var_os("HOME") {
-        for dir in &["covn", "drift"] {
-            let base = std::path::Path::new(&home).join(".local").join("state").join(dir);
-            if base.exists() {
-                let repo_path = base.join(repo_name);
-                if repo_path.exists() {
-                    return Some(repo_path);
-                }
-            }
-        }
+    if repo_name.is_empty() {
+        return None;
     }
 
+    let parts: Vec<&str> = repo_url.split('/').collect();
+    let full_name = if parts.len() >= 2 {
+        format!("{}/{}", parts[parts.len() - 2], repo_name)
+    } else {
+        repo_name.to_string()
+    };
+
     if let Some(home) = std::env::var_os("HOME") {
-        let drift_path = std::path::Path::new(&home).join(".local").join("state").join("drift");
-        if drift_path.exists() {
-            let repo_path = drift_path.join(repo_name);
-            if repo_path.exists() {
-                return Some(repo_path);
+        for dir in &["covn", "drift"] {
+            let base = std::path::Path::new(&home).join(".local").join("share").join(dir);
+
+            let full_path = base.join(&full_name);
+            if full_path.exists() {
+                return Some(full_path);
+            }
+
+            let short_path = base.join(&repo_name);
+            if short_path.exists() {
+                return Some(short_path);
             }
         }
     }
