@@ -15,6 +15,7 @@ pub async fn train(
     _script: Option<String>,
     model_path: String,
     dataset_path: String,
+    dataset_urls: Vec<String>,
     batch_size: u32,
     learning_rate: f64,
     epochs: u32,
@@ -62,6 +63,7 @@ pub async fn train(
     let train_config = TrainConfig {
         model_path,
         dataset_path,
+        dataset_urls,
         batch_size,
         learning_rate,
         epochs,
@@ -72,6 +74,7 @@ pub async fn train(
         enable_auth: false,
         auth_threshold: 3,
         git_commit: None,
+        gpu_compute_capability: None,
     };
 
     // Connect to each peer and collect node info

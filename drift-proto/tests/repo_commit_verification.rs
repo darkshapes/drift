@@ -69,8 +69,10 @@ mod repo_commit_tests {
             auth_threshold: 3,
             enable_auth: false,
             model_artifact_ref: None,
-            git_commit: None,
-        };
+git_commit: None,
+        dataset_urls: vec![],
+        gpu_compute_capability: None,
+    };
 
         assert!(config.git_commit.is_none());
 
@@ -94,6 +96,8 @@ mod repo_commit_tests {
             enable_auth: false,
             model_artifact_ref: None,
             git_commit: Some("f00bar".to_string()),
+            dataset_urls: vec![],
+            gpu_compute_capability: None,
         };
 
         let json = serde_json::to_string(&config);

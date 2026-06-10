@@ -31,6 +31,9 @@ fn scenario_node_persists_and_restores_assignment() {
             auth_threshold: 1,
             enable_auth: true,
             model_artifact_ref: None,
+            dataset_urls: vec![],
+            git_commit: None,
+            gpu_compute_capability: None,
         };
 
         let local_state = LocalShardState {

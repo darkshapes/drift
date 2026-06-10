@@ -122,6 +122,8 @@ async fn test_training_pipeline() {
             enable_auth: false,
             auth_threshold: 3,
             git_commit: None,
+            dataset_urls: vec![],
+            gpu_compute_capability: None,
         }),
     )
     .await

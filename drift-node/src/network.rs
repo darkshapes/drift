@@ -103,6 +103,75 @@ pub async fn handle_connection(
                     )
                     .await?;
                 }
+                DriftMessage::TrainingReady => {
+                    info!("received TrainingReady - discovering script entrypoint");
+                    let repo_url = if let Some(ref config) = cached_config {
+                        config.train_repo_url.clone()
+                    } else {
+                        None
+                    };
+                    if let Some(url) = repo_url {
+                        let home = std::env::var("HOME").unwrap_or_else(|_| "~".to_string());
+                        let base = std::path::PathBuf::from(home).join(".local/share/drift");
+                        match crate::script_discovery::clone_repo_to_drift_cache(&url, &base).await {
+                            Ok(cloned_path) => {
+                                match crate::script_discovery::discover_script_entrypoint(&cloned_path) {
+                                    Ok(entrypoint) => {
+                                        info!(entrypoint = %entrypoint, "discovered script entrypoint");
+                                        if let Some(ref mut config) = cached_config {
+                                            config.script_entrypoint = Some(entrypoint);
+                                        } else {
+                                            let mut new_config = drift_proto::TrainConfig::default();
+                                            new_config.script_entrypoint = Some(entrypoint);
+                                            cached_config = Some(new_config);
+                                        }
+                                    }
+                                    Err(e) => {
+                                        warn!(error = %e, "failed to discover entrypoint");
+                                        let now = std::time::SystemTime::now()
+                                            .duration_since(std::time::SystemTime::UNIX_EPOCH)
+                                            .map(|d| d.as_secs().to_string())
+                                            .unwrap_or_else(|_| "0".to_string());
+                                        let cancel = drift_proto::DriftMessage::TrainingCancel(drift_proto::TrainingCancel {
+                                            reason: format!("entrypoint not found: {}", e),
+                                            time: now,
+                                            repo_url: url,
+                                        });
+                                        write_message(&mut send, &cancel).await?;
+                                        break;
+                                    }
+                                }
+                            }
+                            Err(e) => {
+                                warn!(error = %e, "failed to clone repo");
+                                let now = std::time::SystemTime::now()
+                                    .duration_since(std::time::SystemTime::UNIX_EPOCH)
+                                    .map(|d| d.as_secs().to_string())
+                                    .unwrap_or_else(|_| "0".to_string());
+                                let cancel = drift_proto::DriftMessage::TrainingCancel(drift_proto::TrainingCancel {
+                                    reason: format!("clone failed: {}", e),
+                                    time: now,
+                                    repo_url: url,
+                                });
+                                write_message(&mut send, &cancel).await?;
+                                break;
+                            }
+                        }
+                    } else {
+                        warn!("TrainingReady received without train_repo_url in config");
+                        let now = std::time::SystemTime::now()
+                            .duration_since(std::time::SystemTime::UNIX_EPOCH)
+                            .map(|d| d.as_secs().to_string())
+                            .unwrap_or_else(|_| "0".to_string());
+                        let cancel = drift_proto::DriftMessage::TrainingCancel(drift_proto::TrainingCancel {
+                            reason: "no train_repo_url in config".to_string(),
+                            time: now,
+                            repo_url: "".to_string(),
+                        });
+                        write_message(&mut send, &cancel).await?;
+                        break;
+                    }
+                }
                 DriftMessage::TrainComplete => {
                     info!("training complete signal received");
                     break;
@@ -184,10 +253,12 @@ pub async fn handle_completion(
                 let (progress_tx, _progress_rx) = tokio::sync::mpsc::channel(16);
 
                 let script: String = config.script_entrypoint.as_ref().unwrap_or(&"/tmp/train.py".to_string()).to_string();
+                let gpu_cc = config.gpu_compute_capability.unwrap_or(0.0);
                 match crate::training::spawn_training_with_progress(
                     &script,
                     &config.model_path,
                     &config.dataset_path,
+                    &config.dataset_urls,
                     config.batch_size,
                     config.learning_rate,
                     config.epochs,
@@ -195,6 +266,7 @@ pub async fn handle_completion(
                     shard.shard_start,
                     shard.shard_end,
                     node_id.to_string(),
+                    gpu_cc,
                     progress_tx,
                     Some(state),
                 ).await {
