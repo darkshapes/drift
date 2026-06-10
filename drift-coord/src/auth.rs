@@ -225,6 +225,9 @@ mod tests {
             script_entrypoint: Some("train.py".to_string()),
             dataset_repo_url: None,
             model_artifact_ref: None,
+            dataset_urls: vec![],
+            git_commit: None,
+            gpu_compute_capability: None,
         }
     }
 

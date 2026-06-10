@@ -280,6 +280,10 @@ pub struct TrainConfig {
     #[serde(default)]
     pub dataset_repo_url: Option<String>,
 
+    /// URLs for datasets (multiple datasets supported).
+    #[serde(default)]
+    pub dataset_urls: Vec<String>,
+
     /// Optional path within dataset_repo for fine-tuning from local base model.
     #[serde(default)]
     pub model_artifact_ref: Option<String>,
@@ -294,6 +298,10 @@ pub struct TrainConfig {
     /// Agreed-upon git commit hash (set by coordinator after verification).
     #[serde(default)]
     pub git_commit: Option<String>,
+
+    /// GPU compute capability (e.g., 8.9 for CUDA 8.9).
+    #[serde(default)]
+    pub gpu_compute_capability: Option<f64>,
 }
 
 /// Shard assignment for a specific node.

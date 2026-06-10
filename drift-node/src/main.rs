@@ -94,11 +94,13 @@ async fn join(name: Option<String>) -> Result<()> {
 
                     let script: String = config.script_entrypoint.as_ref().unwrap_or(&"/tmp/train.py".to_string()).to_string();
                     let (progress_tx, _progress_rx) = mpsc::channel(16);
+                    let gpu_cc = config.gpu_compute_capability.unwrap_or(0.0);
 
                     match training::spawn_training_with_progress(
                         &script,
                         &config.model_path,
                         &config.dataset_path,
+                        &config.dataset_urls,
                         config.batch_size,
                         config.learning_rate,
                         config.epochs,
@@ -106,6 +108,7 @@ async fn join(name: Option<String>) -> Result<()> {
                         shard.shard_start,
                         shard.shard_end,
                         node_id_str.clone(),
+                        gpu_cc,
                         progress_tx,
                         Some(cached.clone()),
                     ).await {

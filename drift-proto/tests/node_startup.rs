@@ -37,6 +37,8 @@ fn test_load_cached_state_returns_last_checkpoint() {
         enable_auth: false,
         auth_threshold: 3,
         git_commit: None,
+        dataset_urls: vec![],
+        gpu_compute_capability: None,
     };
 
     let shard = ShardAssignment {

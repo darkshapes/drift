@@ -72,6 +72,7 @@ pub async fn spawn_training_with_progress(
     script: &str,
     model_path: &str,
     dataset_path: &str,
+    dataset_urls: &[String],
     batch_size: u32,
     learning_rate: f64,
     epochs: u32,
@@ -79,6 +80,7 @@ pub async fn spawn_training_with_progress(
     shard_start: u64,
     shard_end: u64,
     node_id: String,
+    gpu_compute_capability: f64,
     progress_tx: Sender<DriftMessage>,
     cached_state: Option<LocalShardState>,
 ) -> Result<(tokio::process::Child, u64)> {
@@ -91,27 +93,28 @@ pub async fn spawn_training_with_progress(
     let last_step_clone = last_step.clone();
     let node_id_clone = node_id.clone();
 
-    let mut child = tokio::process::Command::new("python")
-        .arg(script)
-        .arg("--model-path")
-        .arg(model_path)
-        .arg("--dataset-path")
-        .arg(dataset_path)
-        .arg("--batch-size")
-        .arg(batch_size.to_string())
-        .arg("--learning-rate")
-        .arg(learning_rate.to_string())
-        .arg("--epochs")
-        .arg(epochs.to_string())
-        .arg("--shard-index")
-        .arg(shard_index.to_string())
-        .arg("--shard-start")
-        .arg(shard_start.to_string())
-        .arg("--shard-end")
-        .arg(shard_end.to_string())
+   let use_shell = script.contains(' ');
+    let mut base_cmd = tokio::process::Command::new(if use_shell { "sh" } else { "python" });
+    if use_shell {
+        base_cmd.arg("-c").arg(script);
+    } else {
+        base_cmd.arg(script);
+    }
+    base_cmd.arg("--model-path").arg(model_path)
+        .arg("--dataset-path").arg(dataset_path);
+    for url in dataset_urls {
+        base_cmd.arg("--dataset-url").arg(url);
+    }
+    base_cmd.arg("--batch-size").arg(batch_size.to_string())
+        .arg("--learning-rate").arg(learning_rate.to_string())
+        .arg("--epochs").arg(epochs.to_string())
+        .arg("--shard-index").arg(shard_index.to_string())
+        .arg("--shard-start").arg(shard_start.to_string())
+        .arg("--shard-end").arg(shard_end.to_string())
+        .arg("--gpu-cc").arg(gpu_compute_capability.to_string())
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()?;
+        .stderr(Stdio::piped());
+    let mut child = base_cmd.spawn()?;
 
     let progress_tx_stdby = progress_tx.clone();
 
