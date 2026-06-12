@@ -3,6 +3,7 @@ use drift_proto::{
     read_message, write_message, DriftMessage, NodeInfo, DRIFT_ALPN, DRIFT_RING_ALPN,
 };
 use iroh::{Endpoint, PublicKey};
+use sha2::{Sha256, Digest};
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tracing::{error, info, warn};
 
@@ -265,7 +266,8 @@ async fn handle_connection(
                             let repo_url = config.train_repo_url.as_ref().ok_or_else(|| anyhow::anyhow!("No train_repo_url in config"))?;
                             let repo_path = find_local_repo(repo_url).ok_or_else(|| anyhow::anyhow!("Repo not found locally"))?;
                             let commit_hash = run_git_ls_remote(&repo_path).ok_or_else(|| anyhow::anyhow!("git ls-remote failed"))?;
-                            let signature = sign_with_iroh_key(&commit_hash, repo_url)?;
+                            let node_pubkey = endpoint.id();
+                            let signature = sign_with_iroh_key(node_pubkey, &commit_hash, repo_url)?;
                             let repo_commit = drift_proto::RepoCommit {
                                 commit: commit_hash,
                                 repo_url: repo_url.clone(),
@@ -598,6 +600,10 @@ fn run_git_ls_remote(repo_path: &std::path::Path) -> Option<String> {
         .map(|hash| hash.to_string())
 }
 
-fn sign_with_iroh_key(_commit: &str, _repo_url: &str) -> Result<Vec<u8>> {
-    Ok(vec![])
+fn sign_with_iroh_key(public_key: &PublicKey, commit: &str, repo_url: &str) -> Result<Vec<u8>> {
+    let mut hasher = Sha256::new();
+    hasher.update(public_key.as_bytes());
+    hasher.update(commit.as_bytes());
+    hasher.update(repo_url.as_bytes());
+    Ok(hasher.finalize().into_bytes().to_vec())
 }

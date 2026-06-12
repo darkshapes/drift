@@ -73,7 +73,8 @@ async fn join(name: Option<String>) -> Result<()> {
         gpus.iter().map(|g| g.vram_mb).sum()
     };
 
-    let endpoint = network::create_endpoint().await?;
+    let keypair = network::load_or_create_keypair().await?;
+    let endpoint = network::create_endpoint_with_keypair(keypair).await?;
     let node_id = endpoint.id();
 
     let node_id_str = node_id.to_string();
@@ -176,10 +177,11 @@ async fn join(name: Option<String>) -> Result<()> {
             };
 
             let node_info = node_info_msg.clone();
+            let node_id_copy = node_id_str.clone();
             tokio::spawn(async move {
                 match incoming.await {
                     Ok(conn) => {
-                        if let Err(e) = network::handle_connection(conn, node_info).await {
+                        if let Err(e) = network::handle_connection(conn, node_info, &node_id_copy).await {
                             error!("connection handler error: {}", e);
                         }
                     }

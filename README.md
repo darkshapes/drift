@@ -9,133 +9,91 @@ compatibility:
 
 # Drift
 
-Drift coordinates distributed model training across geo-distributed COVEN peer nodes using encrypted peer-to-peer (p2p) networking via [iroh](https://github.com/n0-computer/iroh). Unlike traditional distributed training that shares gradients and tensor products over the network, each node trains independently at its own pace without behaving as if it were a tight synchronization datacenter cluster.
-
-## Overview
-
-### Purpose
-
-Distributed training coordination for consumer hardware (GPUs and CPUs) that:
-
-- Avoids gradient sharing and allgather operations entirely
-- Trains nodes independently in a ring-free, GLOO-free, NVLink-free architecture
-- Supports Apple Silicon Metal, NVIDIA CUDA, AMD ROCm, and Vulkan backends
-- Communicates over QUIC-encrypted iroh tunnels with automatic NAT hole-punching
-
-## End-to-End Operation
-
-```
-┌─────────────┐    ┌───────────┐    ┌─────────────┐
-│ Coordinator │◄───│  Node A   │◄───│    Node B   │
-└─────────────┘    └───────────┘    └─────────────┘
-        │               │                     │
-   ALPN: drift/0    ping/pong           TrainConfig/ShardAssignment
-```
-
-### Protocol Flow (ALPN: `drift/0`)
-
-1. **Handshake**: Coordinator initiates QUIC connection to node, sends `Ping`
-2. **Discovery**: Node responds with `NodeInfo` containing GPU name, VRAM, compute capability
-3. **Configuration**: Coordinator sends `TrainConfig`, `ShardAssignment`
-4. **Training Loop**:
-   - Nodes train locally at their own pace
-   - Nodes send periodic `BarrierSync` per step
-   - Coordinator replies `BarrierReady` for checkpoint coordination
-5. **Progress**: Node streams `TrainProgress` updates back to coordinator
-6. **Finalization**: Checkpoint aggregation on coordinated barrier
-
-All traffic is encrypted end-to-end via QUIC. NAT hole-punching is handled automatically by iroh, with relay fallback. Messages are length-prefixed JSON over QUIC bidirectional streams.
-
-## Architecture
-
-### Libraries
-
-| Library                        | Purpose                                                      |
-| ------------------------------ | ------------------------------------------------------------ |
-| [drift-auth](../drift-auth/)   | Ed25519 key generation, signing, token validation, LRU cache |
-| [drift-proto](../drift-proto/) | Message types, serialization, protocol framing, ALPN         |
-| [drift-coord](../drift-coord/) | Peer discovery, session negotiation, training orchestration  |
-| [drift-node](../drift-node/)   | node runtime, VRAM tracking, status monitoring               |
-
-### CLI Binaries
-
-```
-┌──────────────┐     ┌─────────────────┐     ┌───────────────────┐
-│  drift-cli   │     │   drift-node    │     │    drift-coord    │
-├────────────────────────────────────────────────────────────────┤
-│         Unified entry point (join/train/status)                │
-└──────────────┘     └─────────────────┘     └───────────────────┘
-```
-
-## Development Notes
-
-### What's Removed
-
-- All shared memory operations
-- Gradient synchronization and ring scatter-reduce
-- Allgather collectives
-- Torch Distributed / DDP functions
-- Tensor products shared over network
-- NVLink-aware tensor sharding
-
-### What's Added
-
-- Apple device recognition and Metal GPU detection
-- Independent local training with checkpoint coordination
-- Periodic barrier sync without gradient exchange
-
-### Build Artifacts
-
-Drift builds to `target/release/`. Binary artifacts should be moved, copied, or symlinked to a static folder:
-
-```
-drift/target/release/drift           # Main CLI binary
-drift/target/release/drift-node      # Node binary
-drift/target/release/drift-coord     # Coordinator binary
-```
-
-On MacOS, building `drift` may require permission from `integration`, `stress`, and `training` packages.
+Drift coordinates distributed model training across geo-distributed nodes using encrypted peer-to-peer (p2p) networking via [iroh](https://github.com/n0-computer/iroh). Unlike traditional distributed training that shares gradients and tensor products over the network, each node on this fork trains independently at its own pace without behaving as if it were a tightly synchronized datacenter cluster.
 
 ## Setup
 
 The library is managed by nocturne through `covn`, and otherwise remains independent of other libraries. Install using the root build command.
 
-## Minimum Requirements
+### Minimum Requirements
 
-### Hardware
+#### Hardware
 
 - Any computer capable of running Rust with network connectivity:
   - Apple M-series Mac with Metal GPU
   - Linux PC with NVIDIA/AMD/Vulkan-compatible GPU
   - Generic CPU-only system (limited throughput)
 
-### Software
+#### Software
 
 - [`just`](https://github.com/casey/just#packages) to build library
 - [Rust](https://rust-lang.org) 1.75+ toolchain
 
-### Experience
+#### Experience
 
 - Familiarity with command-line interfaces (CLI)
 - Basic understanding of ML training loops
 
+### Build
+
+From root folder:
+
+```sh
+just build-drift
+```
+
+Or manually:
+
+```sh
+cd drift
+cargo build --release
+ln -s <path/to/clone>/target/release/drift $HOME/.local/bin/drift
+ln -s <path/to/clone>/target/release/drift-coord $HOME/.local/bin/drift-coord
+ln -s <path/to/clone>/target/release/drift-node $HOME/.local/bin/drift-node
+```
+
+Restart shell after creating symlinks.
+
+### Manual Installation
+
+````sh
+# Clone and build
+git clone https://github/com/darkshapes/drift
+cd drift
+cargo build --release
+
+Install within COVEN:
+
+```sh
+git clone https://tangled.org/did:plc:okz7ln6fsh4edhazevnrwsyi coven    # Clone and build
+just build-drift
+```
+
+Manual COVEN Installation:
+```sh
+cd coven/drift
+cargo build --release
+ln -s $PWD/target/release/drift $HOME/.local/bin/drift            # Symlink binaries
+ln -s $PWD/target/release/drift-node $HOME/.local/bin/drift-node
+ln -s $PWD/target/release/drift-coord $HOME/.local/bin/drift-coord
+````
+
+Ensure `$HOME/.local/bin` is in your PATH.
+
 ## Usage Guide
 
-### Starting a Session as Coordinator
+Create an available node
 
 ```sh
 # Start drift coordinator daemon
-drift coord --port 7842 &
+drift join   # Can be started on several machines
 ```
 
-### Joining as Training Peer
+Start training using a specific training repo
 
-```sh
-# Join an existing session
-drift join --token eyJ...V19
-
-# Or specify peer nodes directly
-drift train --peers 4e110...,de4db33f --epochs 10
+```
+# Specify peer nodes directly
+drift train --peers 4e110...,de4db33f --repo https://github.com/darkshapes/ati
 ```
 
 ### Monitoring Progress
@@ -165,52 +123,9 @@ RUST_LOG=debug ./target/release/drift join
 | `--resume`                | Resume from last checkpoint                       |
 | `--checkpoint-dir <path>` | Directory for checkpoint files                    |
 
-## Build
+## Architecture
 
-From root folder:
-
-```
-just build-drift
-```
-
-Or manually:
-
-```
-cd drift
-cargo build --release
-ln -s <path/to/clone>/target/release/drift $HOME/.local/bin/drift
-ln -s <path/to/clone>/target/release/drift-coord $HOME/.local/bin/drift-coord
-ln -s <path/to/clone>/target/release/drift-node $HOME/.local/bin/drift-node
-```
-
-Restart shell after creating symlinks.
-
-## Manual Installation
-
-````sh
-# Clone and build
-git clone https://github/com/darkshapes/drift
-cd drift
-cargo build --release
-
-
-For development builds with covn:
-
-```sh
-# Clone and build
-git clone https://tangled.org/yzzxyz.roomy.chat/coven
-cd coven/drift
-cargo build --release
-
-# Symlink binaries
-ln -s $PWD/target/release/drift $HOME/.local/bin/drift
-ln -s $PWD/target/release/drift-node $HOME/.local/bin/drift-node
-ln -s $PWD/target/release/drift-coord $HOME/.local/bin/drift-coord
-````
-
-Ensure `$HOME/.local/bin` is in your PATH.
-
-## Project Structure
+### Project Structure
 
 ```
 drift/
@@ -251,12 +166,56 @@ drift/
     └── train.yaml           # Example training configuration
 ```
 
-## Testing
+### Purpose
 
-```sh
-# Run all tests
-cargo test --workspace
+Distributed training coordination for consumer hardware (GPUs and CPUs) that:
 
-# Or run specific library tests
-cd drift-proto && cargo test
+- Avoids gradient sharing and allgather operations entirely
+- Trains nodes independently in a ring-free, GLOO-free, NVLink-free architecture
+- Supports Apple Silicon Metal, NVIDIA CUDA, AMD ROCm, and Vulkan backends
+- Communicates over QUIC-encrypted iroh tunnels with automatic NAT hole-punching
+
+## End-to-End Operation
+
+```
+┌─────────────┐    ┌───────────┐    ┌─────────────┐
+│ Coordinator │◄───│  Node A   │◄───│    Node B   │
+└─────────────┘    └───────────┘    └─────────────┘
+        │               │                     │
+   ALPN: drift/0    ping/pong           TrainConfig/ShardAssignment
+```
+
+### Protocol Flow (ALPN: `drift/0`)
+
+1. **Handshake**: Coordinator initiates QUIC connection to node, sends `Ping` and training repo path
+2. **Validate**: Node responds with `RepoCommit` containing the commit hash of the current branch signed by the Iroh key.
+3. **Confirm**: Coordinator receives all node commit hashes & replies `TrainingCancel`. Training ends unless all commits match signaled by `TrainingReady`
+4. **Discovery**: Node responds to `TrainingReady` with `NodeInfo` containing GPU name, VRAM, compute capability
+5. **Configuration**: Coordinator sends `TrainConfig`, `ShardAssignment`
+6. **Training Loop**:
+   - Nodes train locally at their own pace
+   - Nodes send periodic `BarrierSync` per step
+   - Coordinator replies `BarrierReady` for checkpoint coordination
+7. **Progress**: Node streams `TrainProgress` updates back to coordinator
+8. **Finalization**: Checkpoint aggregation on coordinated barrier
+
+All traffic is encrypted end-to-end via QUIC. NAT hole-punching is handled automatically by iroh, with relay fallback. Messages are length-prefixed JSON over QUIC bidirectional streams.
+
+### Libraries
+
+| Library                        | Purpose                                                      |
+| ------------------------------ | ------------------------------------------------------------ |
+| [drift-auth](../drift-auth/)   | Ed25519 key generation, signing, token validation, LRU cache |
+| [drift-proto](../drift-proto/) | Message types, serialization, protocol framing, ALPN         |
+| [drift-coord](../drift-coord/) | Peer discovery, session negotiation, training orchestration  |
+| [drift-node](../drift-node/)   | node runtime, VRAM tracking, status monitoring               |
+
+### CLI Binaries
+
+```
+┌──────────────┐     ┌─────────────────┐     ┌───────────────────┐
+│  drift-cli   │     │   drift-node    │     │    drift-coord    │
+├────────────────────────────────────────────────────────────────┤
+│         Unified entry point (join/train/status)                │
+└──────────────┘     └─────────────────┘     └───────────────────┘
 ```
