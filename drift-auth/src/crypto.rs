@@ -94,6 +94,83 @@ pub fn aggregate_signatures(
 #[cfg(test)]
 mod tests {
     #[test]
+    fn test_sign_repo_commit_verify_success() {
+        use ed25519_dalek::SigningKey;
+
+        let mut rng = rand::rngs::OsRng;
+        let kp = SigningKey::generate(&mut rng);
+        let io_pk = iroh::PublicKey::from_bytes(kp.verifying_key().as_bytes()).unwrap();
+
+        let sig = super::sign_repo_commit("node1", "abc123", "https://github.com/user/repo", &kp);
+        let result = super::verify_repo_commit(
+            &io_pk,
+            "node1",
+            "abc123",
+            "https://github.com/user/repo",
+            &sig.to_bytes().to_vec(),
+        );
+        assert!(result.is_ok(), "verify with correct key should succeed");
+    }
+
+    #[test]
+    fn test_sign_repo_commit_verify_wrong_key() {
+        use ed25519_dalek::SigningKey;
+
+        let mut rng = rand::rngs::OsRng;
+        let kp1 = SigningKey::generate(&mut rng);
+        let kp2 = SigningKey::generate(&mut rng);
+        let io_pk2 = iroh::PublicKey::from_bytes(kp2.verifying_key().as_bytes()).unwrap();
+
+        let sig = super::sign_repo_commit("node1", "abc123", "https://github.com/user/repo", &kp1);
+        let result = super::verify_repo_commit(
+            &io_pk2,
+            "node1",
+            "abc123",
+            "https://github.com/user/repo",
+            &sig.to_bytes().to_vec(),
+        );
+        assert!(result.is_err(), "verify with wrong key should fail");
+    }
+
+    #[test]
+    fn test_sign_repo_commit_verify_wrong_message() {
+        use ed25519_dalek::SigningKey;
+
+        let mut rng = rand::rngs::OsRng;
+        let kp = SigningKey::generate(&mut rng);
+        let io_pk = iroh::PublicKey::from_bytes(kp.verifying_key().as_bytes()).unwrap();
+
+        let sig = super::sign_repo_commit("node1", "abc123", "https://github.com/user/repo", &kp);
+        let result = super::verify_repo_commit(
+            &io_pk,
+            "node1",
+            "different_commit",
+            "https://github.com/user/repo",
+            &sig.to_bytes().to_vec(),
+        );
+        assert!(result.is_err(), "verify with wrong message should fail");
+    }
+
+    #[test]
+    fn test_sign_repo_commit_verify_invalid_signature_bytes() {
+        use ed25519_dalek::SigningKey;
+
+        let mut rng = rand::rngs::OsRng;
+        let kp = SigningKey::generate(&mut rng);
+        let io_pk = iroh::PublicKey::from_bytes(kp.verifying_key().as_bytes()).unwrap();
+
+        let bad_sig = vec![0u8; 64];
+        let result = super::verify_repo_commit(
+            &io_pk,
+            "node1",
+            "abc123",
+            "https://github.com/user/repo",
+            &bad_sig,
+        );
+        assert!(result.is_err(), "verify with invalid signature bytes should fail");
+    }
+
+    #[test]
     fn test_sign_verify_with_iroh_keys() {
         use ed25519_dalek::SigningKey;
 

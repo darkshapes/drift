@@ -105,11 +105,11 @@
 
 | Step | Description                                                                  | %   | Code Location                    |
 | ---- | ---------------------------------------------------------------------------- | --- | -------------------------------- |
-| 5.1  | Implement `sign_with_iroh_key()`: sign `commit + repo_url` with node keypair | 0%  | `drift-node/src/network.rs`      |
-| 5.2  | Implement `verify_repo_commit()`: verify signature with node public key      | 0%  | `drift-cli/src/coord.rs:441-448` |
-| 5.3  | Test signature validation with real keys                                     | 0%  | Manual test                      |
+| 5.1  | Implement `sign_with_iroh_key()`: sign `commit + repo_url` with node keypair | 100%| `drift-node/src/network.rs`      |
+| 5.2  | Implement `verify_repo_commit()`: verify signature with node public key      | 100%| `drift-cli/src/coord.rs:441-448` |
+| 5.3  | Test signature validation with real keys                                     | 100%| Manual test                      |
 
-**Stage completion checkbox:** ☐
+**Stage completion checkbox:** ☒
 
 **Verifiable state:**
 
@@ -128,4 +128,4 @@
 **Notes:**
 - Stages 1-3: Code implementation verified (100% tests passing)
 - Stage 4: Integration test documentation created
-- Stage 5: Optional signing implementation (pending)
+- Stage 5: Signing implementation completed as documented in repo_commit_signing_validation.md

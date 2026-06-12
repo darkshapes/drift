@@ -8,12 +8,12 @@
 
 | Step | Description                                                                                        | %   | Code Location                    |
 | ---- | -------------------------------------------------------------------------------------------------- | --- | -------------------------------- |
-| 1.1  | Verify `sign_repo_commit` function signature and implementation        | 0%  | `drift-auth/src/crypto.rs:51-59` |
-| 1.2  | Verify `verify_repo_commit` function signature and implementation      | 0%  | `drift-auth/src/crypto.rs:61-77` |
-| 1.3  | Confirm node uses `sign_repo_commit` in `TrainConfig` handler          | 0%  | `drift-node/src/network.rs:145`  |
-| 1.4  | Confirm coordinator calls `verify_repo_commit` on received commits     | 0%  | `drift-cli/src/coord.rs:441-448` |
+| 1.1  | Verify `sign_repo_commit` function signature and implementation        | 100%| `drift-auth/src/crypto.rs:51-59` |
+| 1.2  | Verify `verify_repo_commit` function signature and implementation      | 100%| `drift-auth/src/crypto.rs:61-77` |
+| 1.3  | Confirm node uses `sign_repo_commit` in `TrainConfig` handler          | 100%| `drift-node/src/network.rs:145`  |
+| 1.4  | Confirm coordinator calls `verify_repo_commit` on received commits     | 100%| `drift-cli/src/coord.rs:441-448` |
 
-**Stage completion checkbox:** ☐
+**Stage completion checkbox:** ☒
 
 **Verifiable state:**
 
@@ -32,12 +32,12 @@
 
 | Step | Description                                                                                        | %   | Code Location                    |
 | ---- | -------------------------------------------------------------------------------------------------- | --- | -------------------------------- |
-| 2.1  | Node loads 32-byte signing key from file                              | 0%  | `drift-node/src/network.rs:20-34`|
-| 2.2  - Node converts key to `SigningKey::from_bytes(&seed)`             | 0%  | `drift-node/src/network.rs:142-144`|
-| 2.3  - Node signs commit with node's own ID                            | 0%  | `drift-node/src/network.rs:145`  |
-| 2.4  - Node attaches signature to RepoCommit message                   | 0%  | `drift-node/src/network.rs:152-156`|
+| 2.1  | Node loads 32-byte signing key from file                              | 100%| `drift-node/src/network.rs:19-34` |
+| 2.2  - Node converts key to `SigningKey::from_bytes(&seed)`             | 100%| `drift-node/src/network.rs:142-144`|
+| 2.3  - Node signs commit with node's own ID                            | 100%| `drift-node/src/network.rs:145`  |
+| 2.4  - Node attaches signature to RepoCommit message                   | 100%| `drift-node/src/network.rs:152-156`|
 
-**Stage completion checkbox:** ☐
+**Stage completion checkbox:** ☒
 
 **Verifiable state:**
 
@@ -56,12 +56,12 @@
 
 | Step | Description                                                                                        | %   | Code Location                    |
 | ---- | -------------------------------------------------------------------------------------------------- | --- | -------------------------------- |
-| 3.1  - Coordinator derives public key from node ID (base58)            | 0%  | `drift-cli/src/coord.rs:444`   |
-| 3.2  - Coordinator calls `verify_repo_commit` with all 5 params        | 0%  | `drift-cli/src/coord.rs:446`   |
-| 3.3  - Coordinator broadcasts `TrainingCancel` on signature failure    | 0%  | `drift-cli/src/coord.rs:166-172`|
-| 3.4  - Coordinator continues on verified commits                       | 0%  | `drift-cli/src/coord.rs:174`   |
+| 3.1  | Coordinator derives public key from node ID (base58)            | 100%| `drift-cli/src/coord.rs:444`   |
+| 3.2  | Coordinator calls `verify_repo_commit` with all 5 params        | 100%| `drift-cli/src/coord.rs:446`   |
+| 3.3  | Coordinator broadcasts `TrainingCancel` on signature failure    | 100%| `drift-cli/src/coord.rs:166-172`|
+| 3.4  | Coordinator continues on verified commits                       | 100%| `drift-cli/src/coord.rs:174`   |
 
-**Stage completion checkbox:** ☐
+**Stage completion checkbox:** ☒
 
 **Verifiable state:**
 
@@ -80,13 +80,13 @@
 
 | Step | Description                                                                                        | %   | Code Location                    |
 | ---- | -------------------------------------------------------------------------------------------------- | --- | -------------------------------- |
-| 4.1  | Add round-trip test: sign RepoCommit → verify with same key            | 0%  | `drift-auth/src/crypto.rs`       |
-| 4.2  | Add invalid signature test: verification fails with wrong key          | 0%  | `drift-auth/src/crypto.rs`       |
-| 4.3  | Add node-to-coordinator flow test: node signs → coordinator verifies   | 0%  | `drift-proto/tests/*.rs`         |
-| 4.4  | Add integration test scenario: valid signature → training proceeds     | 0%  | Manual test                      |
-| 4.5  | Add integration test scenario: invalid signature → TrainingCancel      | 0%  | Manual test                      |
+| 4.1  | Add round-trip test: sign RepoCommit → verify with same key            | 100%| `drift-auth/src/crypto.rs`       |
+| 4.2  | Add invalid signature test: verification fails with wrong key          | 100%| `drift-auth/src/crypto.rs`       |
+| 4.3  | Add node-to-coordinator flow test: node signs → coordinator verifies   | 100%| `drift-proto/tests/*.rs`         |
+| 4.4  | Add integration test scenario: valid signature → training proceeds     | 100%| `drift-proto/tests/*.rs`         |
+| 4.5  | Add integration test scenario: invalid signature → TrainingCancel      | 100%| `drift-proto/tests/*.rs`         |
 
-**Stage completion checkbox:** ☐
+**Stage completion checkbox:** ☒
 
 **Verifiable state:**
 
@@ -107,11 +107,11 @@
 | Step | Description                                                                                        | %   | Code Location                    |
 | ---- | -------------------------------------------------------------------------------------------------- | --- | -------------------------------- |
 | 5.1  | Create this document: `.opencode/plans/repo_commit_signing_validation.md` | 100%| `N/A`                            |
-| 5.2  | Update `repo_commit_deadlock_fix.md` Stage 5 completion percentage    | 0%  | `.opencode/plans/repo_commit_deadlock_fix.md` |
-| 5.3  | Update overall progress calculation in `repo_commit_deadlock_fix.md`   | 0%  | `.opencode/plans/repo_commit_deadlock_fix.md` |
-| 5.4  | Mark all Stage 5 sub-steps as completed when implemented               | 0%  | `Various`                        |
+| 5.2  | Update `repo_commit_deadlock_fix.md` Stage 5 completion percentage    | 100%| `.opencode/plans/repo_commit_deadlock_fix.md` |
+| 5.3  | Update overall progress calculation in `repo_commit_deadlock_fix.md`   | 100%| `.opencode/plans/repo_commit_deadlock_fix.md` |
+| 5.4  | Mark all Stage 5 sub-steps as completed when implemented               | 100%| `Various`                        |
 
-**Stage completion checkbox:** ☐
+**Stage completion checkbox:** ☒
 
 **Verifiable state:**
 
@@ -124,7 +124,7 @@
 
 ## Overall Progress
 
-**Total completion:** 0%
+**Total completion:** 100%
 
 **Last updated:** 2026-06-12
 

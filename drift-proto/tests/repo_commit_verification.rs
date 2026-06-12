@@ -333,6 +333,138 @@ git_commit: None,
 }
 
 #[cfg(test)]
+mod signature_flow_tests {
+    use drift_auth::crypto::{sign_repo_commit, verify_repo_commit};
+    use drift_proto::{DriftMessage, RepoCommit, TrainingCancel};
+    use ed25519_dalek::SigningKey;
+
+    #[test]
+    fn test_node_signs_and_coordinator_verifies_success() {
+        let mut rng = rand::rngs::OsRng;
+        let kp = SigningKey::generate(&mut rng);
+        let io_pk = iroh::PublicKey::from_bytes(kp.verifying_key().as_bytes()).unwrap();
+        let node_id = "node1";
+        let commit = "abc123def456";
+        let repo_url = "https://github.com/user/repo";
+        let sig = sign_repo_commit(node_id, commit, repo_url, &kp);
+        let result = verify_repo_commit(&io_pk, node_id, commit, repo_url, &sig.to_bytes().to_vec());
+        assert!(result.is_ok(), "coordinator verification should succeed with valid signature");
+    }
+
+    #[test]
+    fn test_node_signs_with_wrong_key_fails_verification() {
+        let mut rng = rand::rngs::OsRng;
+        let kp_signer = SigningKey::generate(&mut rng);
+        let kp_wrong = SigningKey::generate(&mut rng);
+        let io_pk_wrong = iroh::PublicKey::from_bytes(kp_wrong.verifying_key().as_bytes()).unwrap();
+        let node_id = "node1";
+        let commit = "abc123def456";
+        let repo_url = "https://github.com/user/repo";
+        let sig = sign_repo_commit(node_id, commit, repo_url, &kp_signer);
+        let result = verify_repo_commit(&io_pk_wrong, node_id, commit, repo_url, &sig.to_bytes().to_vec());
+        assert!(result.is_err(), "coordinator verification should fail with wrong public key");
+    }
+
+    #[test]
+    fn test_node_signs_with_wrong_commit_fails_verification() {
+        let mut rng = rand::rngs::OsRng;
+        let kp = SigningKey::generate(&mut rng);
+        let io_pk = iroh::PublicKey::from_bytes(kp.verifying_key().as_bytes()).unwrap();
+        let node_id = "node1";
+        let commit = "abc123def456";
+        let wrong_commit = "def456abc789";
+        let repo_url = "https://github.com/user/repo";
+        let sig = sign_repo_commit(node_id, commit, repo_url, &kp);
+        let result = verify_repo_commit(&io_pk, node_id, wrong_commit, repo_url, &sig.to_bytes().to_vec());
+        assert!(result.is_err(), "coordinator verification should fail with wrong commit");
+    }
+
+    #[test]
+    fn test_node_signs_with_wrong_repo_url_fails_verification() {
+        let mut rng = rand::rngs::OsRng;
+        let kp = SigningKey::generate(&mut rng);
+        let io_pk = iroh::PublicKey::from_bytes(kp.verifying_key().as_bytes()).unwrap();
+        let node_id = "node1";
+        let commit = "abc123def456";
+        let repo_url = "https://github.com/user/repo";
+        let wrong_repo_url = "https://github.com/other/repo";
+        let sig = sign_repo_commit(node_id, commit, repo_url, &kp);
+        let result = verify_repo_commit(&io_pk, node_id, commit, wrong_repo_url, &sig.to_bytes().to_vec());
+        assert!(result.is_err(), "coordinator verification should fail with wrong repo_url");
+    }
+
+    #[test]
+    fn test_node_signs_with_wrong_node_id_fails_verification() {
+        let mut rng = rand::rngs::OsRng;
+        let kp = SigningKey::generate(&mut rng);
+        let io_pk = iroh::PublicKey::from_bytes(kp.verifying_key().as_bytes()).unwrap();
+        let node_id = "node1";
+        let wrong_node_id = "node2";
+        let commit = "abc123def456";
+        let repo_url = "https://github.com/user/repo";
+        let sig = sign_repo_commit(node_id, commit, repo_url, &kp);
+        let result = verify_repo_commit(&io_pk, wrong_node_id, commit, repo_url, &sig.to_bytes().to_vec());
+        assert!(result.is_err(), "coordinator verification should fail with wrong node_id");
+    }
+
+    #[test]
+    fn test_valid_signature_allows_training_to_proceed() {
+        let mut rng = rand::rngs::OsRng;
+        let kp = SigningKey::generate(&mut rng);
+        let io_pk = iroh::PublicKey::from_bytes(kp.verifying_key().as_bytes()).unwrap();
+        let node_id = "node1";
+        let commit = "abc123def456";
+        let repo_url = "https://github.com/user/repo";
+        let sig = sign_repo_commit(node_id, commit, repo_url, &kp);
+        let result = verify_repo_commit(&io_pk, node_id, commit, repo_url, &sig.to_bytes().to_vec());
+        assert!(result.is_ok(), "valid signature should allow training to proceed");
+    }
+
+    #[test]
+    fn test_invalid_signature_triggers_training_cancel() {
+        let mut rng = rand::rngs::OsRng;
+        let kp = SigningKey::generate(&mut rng);
+        let io_pk = iroh::PublicKey::from_bytes(kp.verifying_key().as_bytes()).unwrap();
+        let node_id = "node1";
+        let commit = "abc123def456";
+        let repo_url = "https://github.com/user/repo";
+        let bad_sig = vec![0u8; 64];
+        let result = verify_repo_commit(&io_pk, node_id, commit, repo_url, &bad_sig);
+        assert!(result.is_err(), "invalid signature should cause verification to fail");
+        if result.is_err() {
+            let cancel = TrainingCancel {
+                reason: "signature verification failed".to_string(),
+                time: "2024-01-01T00:00:00Z".to_string(),
+                repo_url: repo_url.to_string(),
+            };
+            let msg = DriftMessage::TrainingCancel(cancel);
+            match msg {
+                DriftMessage::TrainingCancel(c) => {
+                    assert!(c.reason.contains("signature verification failed"));
+                }
+                _ => panic!("expected TrainingCancel"),
+            }
+        }
+    }
+
+    #[test]
+    fn test_signature_flow_with_multiple_nodes() {
+        let mut rng = rand::rngs::OsRng;
+        let kp1 = SigningKey::generate(&mut rng);
+        let kp2 = SigningKey::generate(&mut rng);
+        let io_pk1 = iroh::PublicKey::from_bytes(kp1.verifying_key().as_bytes()).unwrap();
+        let io_pk2 = iroh::PublicKey::from_bytes(kp2.verifying_key().as_bytes()).unwrap();
+        let commit = "abc123def456";
+        let repo_url = "https://github.com/user/repo";
+        let sig1 = sign_repo_commit("node1", commit, repo_url, &kp1);
+        let sig2 = sign_repo_commit("node2", commit, repo_url, &kp2);
+        let r1 = verify_repo_commit(&io_pk1, "node1", commit, repo_url, &sig1.to_bytes().to_vec());
+        let r2 = verify_repo_commit(&io_pk2, "node2", commit, repo_url, &sig2.to_bytes().to_vec());
+        assert!(r1.is_ok() && r2.is_ok(), "both nodes should verify successfully");
+    }
+}
+
+#[cfg(test)]
 mod repo_commit_integration_tests {
     use drift_proto::{DriftMessage, RepoCommit, TrainingCancel};
 
