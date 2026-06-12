@@ -48,6 +48,34 @@ pub fn verify_signature_with_iroh_pubkey(
         .map_err(|_| CryptoError::VerificationFailed)
 }
 
+pub fn sign_repo_commit(
+    node_id: &str,
+    commit: &str,
+    repo_url: &str,
+    keypair: &ed25519_dalek::SigningKey,
+) -> Signature {
+    let message = format!("{}|{}|{}", node_id, commit, repo_url);
+    keypair.sign(message.as_bytes())
+}
+
+pub fn verify_repo_commit(
+    pubkey: &iroh::PublicKey,
+    node_id: &str,
+    commit: &str,
+    repo_url: &str,
+    signature: &[u8],
+) -> Result<(), CryptoError> {
+    let pk_bytes = pubkey.as_bytes();
+    let pk = VerifyingKey::from_bytes(pk_bytes)
+        .map_err(|_| CryptoError::InvalidKey)?;
+
+    let message = format!("{}|{}|{}", node_id, commit, repo_url);
+    let sig = Signature::from_slice(signature)
+        .map_err(|_| CryptoError::VerificationFailed)?;
+    pk.verify(message.as_bytes(), &sig)
+        .map_err(|_| CryptoError::VerificationFailed)
+}
+
 pub fn aggregate_signatures(
     signatures: &[Signature],
     threshold: usize,

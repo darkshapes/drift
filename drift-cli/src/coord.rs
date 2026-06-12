@@ -2,7 +2,9 @@ use anyhow::{Context, Result};
 use drift_proto::{
     read_message, write_message, DriftMessage, NodeInfo, TrainConfig, TrainingCancel, DRIFT_ALPN,
 };
+use drift_auth::crypto::{sign_message_with_iroh_keypair, verify_signature_with_iroh_pubkey};
 use iroh::{Endpoint, PublicKey};
+use sha2::{Sha256, Digest};
 use std::str::FromStr;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -124,6 +126,22 @@ pub async fn train(
         anyhow::bail!("no peers responded with node info");
     }
 
+    let assignments = assign_shards(&node_infos, dataset_size);
+
+    // Build ring topology
+    // Send config (no git_commit yet), shard assignments
+    for (i, (send, _recv)) in connections.iter_mut().enumerate() {
+        let mut config = train_config.clone();
+        config.git_commit = None;
+        write_message(send, &DriftMessage::TrainConfig(config)).await?;
+        write_message(
+            send,
+            &DriftMessage::ShardAssignment(assignments[i].clone()),
+        )
+        .await?;
+        info!(node = %node_infos[i].node_id, "sent config, shard");
+    }
+
     // Collect RepoCommit from each node (30s timeout per node)
     let mut repo_commits: Vec<(String, drift_proto::RepoCommit)> = Vec::new();
 
@@ -192,8 +210,6 @@ pub async fn train(
         write_message(send, &DriftMessage::TrainingReady).await?;
     }
 
-    // Calculate shard assignments
-    let assignments = assign_shards(&node_infos, dataset_size);
     let total_vram: u64 = node_infos.iter().map(|n| n.gpu_vram_mb).sum();
 
     println!();
@@ -217,20 +233,6 @@ pub async fn train(
         assignments.len()
     );
     println!();
-
-    // Build ring topology
-    // Send config (with git_commit), shard assignments
-    for (i, (send, _recv)) in connections.iter_mut().enumerate() {
-        let mut config = train_config.clone();
-        config.git_commit = Some(agreed_commit.clone());
-        write_message(send, &DriftMessage::TrainConfig(config)).await?;
-        write_message(
-            send,
-            &DriftMessage::ShardAssignment(assignments[i].clone()),
-        )
-        .await?;
-        info!(node = %node_infos[i].node_id, "sent config, shard");
-    }
 
     // Create checkpoint dir
     tokio::fs::create_dir_all(&checkpoint_dir).await.ok();
@@ -439,11 +441,10 @@ async fn broadcast_training_cancel(
 
 /// Verify RepoCommit signature.
 fn verify_repo_commit(commit: &drift_proto::RepoCommit, node_id: &str) -> Result<()> {
-    let _pubkey = PublicKey::from_str(node_id)
+    let pubkey = PublicKey::from_str(node_id)
         .map_err(|_| anyhow::anyhow!("Invalid node ID: {}", node_id))?;
-    if commit.signature.is_empty() {
-        warn!(node_id = %node_id, "empty signature");
-    }
+    drift_auth::crypto::verify_repo_commit(&pubkey, node_id, &commit.commit, &commit.repo_url, &commit.signature)
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
     Ok(())
 }
 
