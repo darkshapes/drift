@@ -13,8 +13,6 @@ Drift coordinates distributed model training across geo-distributed nodes using 
 
 ## Setup
 
-The library is managed by nocturne through `covn`, and otherwise remains independent of other libraries. Install using the root build command.
-
 ### Minimum Requirements
 
 #### Hardware
@@ -56,20 +54,22 @@ Restart shell after creating symlinks.
 
 ### Manual Installation
 
+The library can be installed independently:
+
 ````sh
 # Clone and build
 git clone https://github/com/darkshapes/drift
 cd drift
 cargo build --release
 
-Install within COVEN:
+or managed by COVEN:
 
 ```sh
 git clone https://tangled.org/did:plc:okz7ln6fsh4edhazevnrwsyi coven    # Clone and build
 just build-drift
 ```
 
-Manual COVEN Installation:
+Manual COVEN partial installation:
 ```sh
 cd coven/drift
 cargo build --release
