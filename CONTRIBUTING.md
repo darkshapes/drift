@@ -70,19 +70,19 @@ M2 Ultra METAL      |
 Intel i9 CPU        | trains slow
 ```
 
-````sql
+```sql
     3070
      |     i9
     ...  /
         \
          |-- M2 Ultra
         /
-    ```  \
+    '''  \
      |     7800
     4090
-````
+```
 
-    Each node is consumer-grade hardware of a different design, generation, bus location or manufactrer.  Price: couple hundred to couple thousand USD. (x1)
+Each node is consumer-grade hardware of a different design, generation, bus location or manufactrer. Price: couple hundred to couple thousand USD. (x1)
 
 Result:
 Calculations arrive staggered. 4090 node finishes, waits for 3070, which waits for M2 Ultra or 7800 or both. All wait for i9 CPU.<br>
@@ -167,6 +167,10 @@ On MacOS, building `drift` may require permission from `integration`, `stress`, 
 - glaze share
 - checkpoint specific saving
 - container/vm options (smolvm)
+
+```
+
+```
 
 ```
 
