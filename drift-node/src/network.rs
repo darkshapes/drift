@@ -9,7 +9,7 @@ use iroh::Endpoint;
 use sha2::{Sha256, Digest};
 use tracing::{info, warn};
 
-static NODE_SIGNING_KEY: Mutex<Option<Vec<u8>> = Mutex::new(None);
+static NODE_SIGNING_KEY: Mutex<Option<Vec<u8>>> = Mutex::new(None);
 
 pub fn set_signing_key(key: Vec<u8>) {
     let mut guard = NODE_SIGNING_KEY.lock().unwrap();

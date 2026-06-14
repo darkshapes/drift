@@ -19,9 +19,11 @@ fn find_ati_plug(value: &toml::Value) -> Option<String> {
             if let Some(project_table) = project.as_table() {
                 if let Some(scripts) = project_table.get("scripts") {
                     if let Some(scripts_table) = scripts.as_table() {
-                        if let Some(ati_plug) = scripts_table.get("ati_plug") {
-                            if let Some(s) = ati_plug.as_str() {
-                                return Some(s.to_string());
+                        for (key, value) in scripts_table {
+                            if key.ends_with("ati_plug") {
+                                if let Some(s) = value.as_str() {
+                                    return Some(s.to_string());
+                                }
                             }
                         }
                     }
@@ -36,9 +38,11 @@ fn find_ati_plug(value: &toml::Value) -> Option<String> {
                     if let Some(uv_table) = uv.as_table() {
                         if let Some(scripts) = uv_table.get("scripts") {
                             if let Some(scripts_table) = scripts.as_table() {
-                                if let Some(ati_plug) = scripts_table.get("ati_plug") {
-                                    if let Some(s) = ati_plug.as_str() {
-                                        return Some(s.to_string());
+                                for (key, value) in scripts_table {
+                                    if key.ends_with("ati_plug") {
+                                        if let Some(s) = value.as_str() {
+                                            return Some(s.to_string());
+                                        }
                                     }
                                 }
                             }
