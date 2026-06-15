@@ -2,9 +2,7 @@ use anyhow::{Context, Result};
 use drift_proto::{
     read_message, write_message, DriftMessage, NodeInfo, TrainConfig, TrainingCancel, DRIFT_ALPN,
 };
-use drift_auth::crypto::{sign_message_with_iroh_keypair, verify_signature_with_iroh_pubkey};
 use iroh::{Endpoint, PublicKey};
-use sha2::{Sha256, Digest};
 use std::str::FromStr;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -83,12 +81,15 @@ pub async fn train(
     let mut node_infos: Vec<NodeInfo> = Vec::new();
     let mut connections = Vec::new();
 
-    for peer_id_str in &peer_ids {
+    println!("==> Stage: Peer Connectivity");
+    for (i, peer_id_str) in peer_ids.iter().enumerate() {
         let public_key = PublicKey::from_str(peer_id_str)
             .with_context(|| format!("invalid node ID: {}", peer_id_str))?;
 
         println!(
-            "  Connecting to {}...",
+            "  [{}/{}] Connecting to {}...",
+            i + 1,
+            peer_ids.len(),
             &peer_id_str[..12.min(peer_id_str.len())]
         );
 
@@ -128,9 +129,31 @@ pub async fn train(
 
     let assignments = assign_shards(&node_infos, dataset_size);
 
+    println!("==> Stage: Shard Division");
+    println!("  {:<15} | {:<12} | {:<15} | {:<15}", "Node ID", "Shard Index", "Start Offset", "End Offset");
+    println!("  {}", "-".repeat(65));
+    for assign in &assignments {
+        println!(
+            "  {:<15} | {:<12} | {:<15} | {:<15}",
+            &assign.node_id[..12.min(assign.node_id.len())],
+            assign.shard_index,
+            assign.shard_start,
+            assign.shard_end
+        );
+    }
+    println!();
+
     // Build ring topology
     // Send config (no git_commit yet), shard assignments
+    println!("==> Stage: Configuration Broadcast");
+    let num_connections = connections.len();
     for (i, (send, _recv)) in connections.iter_mut().enumerate() {
+        println!(
+            "  [{}/{}] Sending config to {}...",
+            i + 1,
+            num_connections,
+            &node_infos[i].node_id[..12.min(node_infos[i].node_id.len())]
+        );
         let mut config = train_config.clone();
         config.git_commit = None;
         write_message(send, &DriftMessage::TrainConfig(config)).await?;
@@ -143,10 +166,17 @@ pub async fn train(
     }
 
     // Collect RepoCommit from each node (30s timeout per node)
+    println!("==> Stage: Consistency Verification");
     let mut repo_commits: Vec<(String, drift_proto::RepoCommit)> = Vec::new();
 
     for i in 0..connections.len() {
         let node_id = node_infos[i].node_id.clone();
+        println!(
+            "  [{}/{}] Verifying commit from {}...",
+            i + 1,
+            connections.len(),
+            &node_id[..12.min(node_id.len())]
+        );
         let commit_start = Instant::now();
         let elem = &mut connections[i];
         let recv = &mut elem.1;

@@ -267,7 +267,8 @@ async fn handle_connection(
                             let repo_path = find_local_repo(repo_url).ok_or_else(|| anyhow::anyhow!("Repo not found locally"))?;
                             let commit_hash = run_git_ls_remote(&repo_path).ok_or_else(|| anyhow::anyhow!("git ls-remote failed"))?;
                             let node_pubkey = endpoint.id();
-                            let signature = sign_with_iroh_key(node_pubkey, &commit_hash, repo_url)?;
+                             let signature = sign_with_iroh_key(&node_pubkey, &commit_hash, repo_url)?;
+
                             let repo_commit = drift_proto::RepoCommit {
                                 commit: commit_hash,
                                 repo_url: repo_url.clone(),
@@ -382,7 +383,7 @@ async fn run_real_training(
 
     let child_stdin = child.stdin.take().expect("piped stdin");
     let child_stdout = child.stdout.take().expect("piped stdout");
-    let stdin_writer = child_stdin;
+    let _stdin_writer = child_stdin;
     let mut stdout_reader = BufReader::new(child_stdout).lines();
 
     // 3. Wait for DRIFT_READY with timeout
@@ -411,7 +412,7 @@ async fn run_real_training(
         }
     }
 
-    let last_barrier_step: Option<u64> = None; // maybe dont need to do this?
+    let _last_barrier_step: Option<u64> = None;
 
     while let Some(line) = stdout_reader.next_line().await? {
         let msg = ipc::parse_python_line(&line);
@@ -605,5 +606,5 @@ fn sign_with_iroh_key(public_key: &PublicKey, commit: &str, repo_url: &str) -> R
     hasher.update(public_key.as_bytes());
     hasher.update(commit.as_bytes());
     hasher.update(repo_url.as_bytes());
-    Ok(hasher.finalize().into_bytes().to_vec())
+    Ok(hasher.finalize().to_vec())
 }
