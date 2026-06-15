@@ -7,6 +7,7 @@ opt-level = 3
 [workspace]
 members = ["drift-cli", "drift-node", "drift-coord", "drift-proto", "drift-auth"]
 resolver = "2"
+exclude = ["vendor/curve25519-dalek-5.0.0-pre.1"]
 
 [workspace.dependencies]
 iroh = "0.96"

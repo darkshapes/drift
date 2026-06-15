@@ -3,5 +3,5 @@
 .atomic
 .vault
 .DS_Store
-vendor/
 
+vend/
