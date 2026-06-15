@@ -9,7 +9,7 @@ use anyhow::{Context, Result};
 use thiserror::Error;
 
 use drift_proto::{DriftMessage, TrainConfig};
-use drift_auth::{Aggregator, SignedAuthMessage, AggregateAuthMessage, AggregationError};
+use drift_auth::{Aggregator, AggregateAuthMessage, AggregationError};
 
 #[derive(Debug, Error)]
 pub enum CoordinatorAuthError {

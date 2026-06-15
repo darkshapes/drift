@@ -833,9 +833,12 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "clap",
+ "drift-auth",
  "drift-proto",
+ "ed25519-dalek 2.2.0",
  "hmac",
  "iroh",
+ "rand 0.8.6",
  "serde",
  "serde_json",
  "sha2 0.10.9",

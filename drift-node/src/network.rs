@@ -21,14 +21,14 @@ pub async fn load_or_create_signing_key() -> Result<Vec<u8>> {
     if path.exists() {
         let data = std::fs::read(&path)?;
         if data.len() == 32 {
-            Ok(data);
+            Ok(data)
         } else {
             anyhow::bail!("invalid signing key file size");
         }
     } else {
         let key: Vec<u8> = (0..32).map(|_| rand::random()).collect();
         std::fs::create_dir_all(path.parent().unwrap())?;
-        std::fs::write(&path, key)?;
+        std::fs::write(&path, &key)?;
         Ok(key)
     }
 }
@@ -41,6 +41,14 @@ fn signing_key_path() -> std::path::PathBuf {
 pub fn get_signing_key() -> Option<Vec<u8>> {
     let guard = NODE_SIGNING_KEY.lock().unwrap();
     guard.clone()
+}
+
+pub async fn load_or_create_keypair() -> Result<Vec<u8>> {
+    load_or_create_signing_key().await
+}
+
+pub async fn create_endpoint_with_keypair(signing_key: Vec<u8>) -> Result<Endpoint> {
+    create_endpoint_with_signing_key(signing_key).await
 }
 
 pub async fn create_endpoint() -> Result<Endpoint> {
@@ -139,7 +147,7 @@ pub async fn handle_connection(
                                     let signing_key = get_signing_key();
                                     let signature = if let Some(key_bytes) = signing_key {
                                         if key_bytes.len() == 32 {
-                                            let seed = [u8; 32];
+                                            let mut seed = [0u8; 32];
                                             seed.copy_from_slice(&key_bytes);
                                             let keypair = SigningKey::from_bytes(&seed);
                                             sign_repo_commit(node_id, &commit, &repo_url, &keypair).to_bytes().to_vec()

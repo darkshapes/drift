@@ -202,7 +202,7 @@ impl PeerRegistry {
         self.state.peers.insert(node_id.clone(), entry);
     }
 
-    pub fn handle_ask_for_more_work(&mut self, node_id: &str) -> DriftMessage {
+    pub fn handle_ask_for_more_work(&mut self, _node_id: &str) -> DriftMessage {
         if !self.pending.is_empty() {
             DriftMessage::AssignNext(self.pop_pending_assignment().unwrap())
         } else if let Some(shard) = self.state.pop_failed_shard() {
@@ -212,7 +212,7 @@ impl PeerRegistry {
         }
     }
 
-    pub fn update_on_progress(&mut self, node_id: &str, step: u64) {
+    pub fn update_on_progress(&mut self, node_id: &str, _step: u64) {
         if let Some(entry) = self.state.peers.get_mut(node_id) {
             entry.last_seen = Some(time::OffsetDateTime::now_utc());
             entry.status = NodeStatus::Active;
