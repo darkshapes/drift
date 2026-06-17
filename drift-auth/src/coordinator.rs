@@ -242,7 +242,7 @@ mod tests {
 
     fn setup_nodes_auth(count: usize, threshold: usize) -> (CoordinatorAuth, Vec<SigningKey>, Vec<String>) {
         let node_ids: Vec<String> = (0..count).map(|i| format!("node_{}", i)).collect();
-        let mut rng = rand::rngs::OsRng;
+        let mut rng = crate::rng::CryptoOsRng::new();
         let keypairs: Vec<SigningKey> = (0..count).map(|_| SigningKey::generate(&mut rng)).collect();
         let auth = CoordinatorAuth::new(node_ids.clone(), true, threshold);
         (auth, keypairs, node_ids)
@@ -435,7 +435,7 @@ mod tests {
     #[test]
     fn test_coordinator_auth_with_aggregator() {
         let node_ids = vec!["n0".to_string(), "n1".to_string()];
-        let mut rng = rand::rngs::OsRng;
+        let mut rng = crate::rng::CryptoOsRng::new();
         let kp = SigningKey::generate(&mut rng);
 
         let msg = AuthMessage::with_values("coordinator", "abc123", 1000u64, 42u64, 1u64);
@@ -651,7 +651,7 @@ mod tests {
         let (auth, _, _) = setup_nodes_auth(0, 0);
 
         let msg = AuthMessage::with_values("coordinator", "broadcast_test", 1000u64, 99u64, 5u64);
-        let mut rng = rand::rngs::OsRng;
+        let mut rng = crate::rng::CryptoOsRng::new();
         let kp = ed25519_dalek::SigningKey::generate(&mut rng);
         let signed = SignedAuthMessage::sign(&msg, &kp).unwrap();
         let aggregate = AggregateAuthMessage::create(vec![signed], 1, 1).unwrap();

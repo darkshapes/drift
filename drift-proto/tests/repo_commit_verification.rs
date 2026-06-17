@@ -340,7 +340,7 @@ mod signature_flow_tests {
 
     #[test]
     fn test_node_signs_and_coordinator_verifies_success() {
-        let mut rng = rand::rngs::OsRng;
+        let mut rng = drift_auth::CryptoOsRng::new();
         let kp = SigningKey::generate(&mut rng);
         let io_pk = iroh::PublicKey::from_bytes(kp.verifying_key().as_bytes()).unwrap();
         let node_id = "node1";
@@ -353,7 +353,7 @@ mod signature_flow_tests {
 
     #[test]
     fn test_node_signs_with_wrong_key_fails_verification() {
-        let mut rng = rand::rngs::OsRng;
+        let mut rng = drift_auth::CryptoOsRng::new();
         let kp_signer = SigningKey::generate(&mut rng);
         let kp_wrong = SigningKey::generate(&mut rng);
         let io_pk_wrong = iroh::PublicKey::from_bytes(kp_wrong.verifying_key().as_bytes()).unwrap();
@@ -367,7 +367,7 @@ mod signature_flow_tests {
 
     #[test]
     fn test_node_signs_with_wrong_commit_fails_verification() {
-        let mut rng = rand::rngs::OsRng;
+        let mut rng = drift_auth::CryptoOsRng::new();
         let kp = SigningKey::generate(&mut rng);
         let io_pk = iroh::PublicKey::from_bytes(kp.verifying_key().as_bytes()).unwrap();
         let node_id = "node1";
@@ -381,7 +381,7 @@ mod signature_flow_tests {
 
     #[test]
     fn test_node_signs_with_wrong_repo_url_fails_verification() {
-        let mut rng = rand::rngs::OsRng;
+        let mut rng = drift_auth::CryptoOsRng::new();
         let kp = SigningKey::generate(&mut rng);
         let io_pk = iroh::PublicKey::from_bytes(kp.verifying_key().as_bytes()).unwrap();
         let node_id = "node1";
@@ -395,7 +395,7 @@ mod signature_flow_tests {
 
     #[test]
     fn test_node_signs_with_wrong_node_id_fails_verification() {
-        let mut rng = rand::rngs::OsRng;
+        let mut rng = drift_auth::CryptoOsRng::new();
         let kp = SigningKey::generate(&mut rng);
         let io_pk = iroh::PublicKey::from_bytes(kp.verifying_key().as_bytes()).unwrap();
         let node_id = "node1";
@@ -409,7 +409,7 @@ mod signature_flow_tests {
 
     #[test]
     fn test_valid_signature_allows_training_to_proceed() {
-        let mut rng = rand::rngs::OsRng;
+        let mut rng = drift_auth::CryptoOsRng::new();
         let kp = SigningKey::generate(&mut rng);
         let io_pk = iroh::PublicKey::from_bytes(kp.verifying_key().as_bytes()).unwrap();
         let node_id = "node1";
@@ -422,7 +422,7 @@ mod signature_flow_tests {
 
     #[test]
     fn test_invalid_signature_triggers_training_cancel() {
-        let mut rng = rand::rngs::OsRng;
+        let mut rng = drift_auth::CryptoOsRng::new();
         let kp = SigningKey::generate(&mut rng);
         let io_pk = iroh::PublicKey::from_bytes(kp.verifying_key().as_bytes()).unwrap();
         let node_id = "node1";
@@ -449,7 +449,7 @@ mod signature_flow_tests {
 
     #[test]
     fn test_signature_flow_with_multiple_nodes() {
-        let mut rng = rand::rngs::OsRng;
+        let mut rng = drift_auth::CryptoOsRng::new();
         let kp1 = SigningKey::generate(&mut rng);
         let kp2 = SigningKey::generate(&mut rng);
         let io_pk1 = iroh::PublicKey::from_bytes(kp1.verifying_key().as_bytes()).unwrap();

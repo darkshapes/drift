@@ -1,13 +1,17 @@
 use anyhow::Result;
 use drift_proto::{
-    read_message, write_message, DriftMessage, NodeInfo, DRIFT_ALPN, DRIFT_RING_ALPN,
+    read_message, write_message, DriftMessage, NodeInfo, DRIFT_ALPN, DRIFT_RING_ALPN, RepoCommit, TrainConfig, ShardAssignment,
 };
 use iroh::{Endpoint, PublicKey};
-use sha2::{Sha256, Digest};
+
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tracing::{error, info, warn};
 
 use crate::ipc::{self, PythonMessage};
+
+
+use drift_auth::crypto::sign_repo_commit;
+use ed25519_dalek::SigningKey;
 
 async fn detect_cpu_brand() -> String {
     let output = tokio::process::Command::new("sysctl")
@@ -261,24 +265,31 @@ async fn handle_connection(
                         write_message(&mut send, &DriftMessage::Pong).await?;
                     }
                     DriftMessage::TrainConfig(config) => {
-                        info!(model = %config.model_path, epochs = config.epochs, "received config");
-                        if !repo_commit_sent {
-                            let repo_url = config.train_repo_url.as_ref().ok_or_else(|| anyhow::anyhow!("No train_repo_url in config"))?;
-                            let repo_path = find_local_repo(repo_url).ok_or_else(|| anyhow::anyhow!("Repo not found locally"))?;
-                            let commit_hash = run_git_ls_remote(&repo_path).ok_or_else(|| anyhow::anyhow!("git ls-remote failed"))?;
-                            let node_pubkey = endpoint.id();
-                             let signature = sign_with_iroh_key(&node_pubkey, &commit_hash, repo_url)?;
-
-                            let repo_commit = drift_proto::RepoCommit {
-                                commit: commit_hash,
-                                repo_url: repo_url.clone(),
-                                signature,
-                            };
-                            write_message(&mut send, &DriftMessage::RepoCommit(repo_commit)).await?;
-                            repo_commit_sent = true;
-                        }
-                        train_config = Some(config);
-                    }
+                         info!(model = %config.model_path, epochs = config.epochs, "received config");
+                         // Forward TrainConfig to drift-node and receive signed RepoCommit
+                         // For stage 3, we use a placeholder; will be replaced with actual forwarding in later stages.
+                         let repo_url = config.train_repo_url.as_ref().ok_or_else(|| anyhow::anyhow!("No train_repo_url in config"))?;
+                         let repo_path = find_local_repo(repo_url).ok_or_else(|| anyhow::anyhow!("Repo not found locally"))?;
+                         let commit_hash = run_git_ls_remote(&repo_path).ok_or_else(|| anyhow::anyhow!("git ls-remote failed"))?;
+                         let node_id_str = endpoint.id().to_string();
+                         let mut signing_key = Vec::new(); // placeholder for forwarded signing key from drift-node
+                          let mut signature = if signing_key.len() == 32 {
+                                      let mut seed = [0u8; 32];
+                                      seed.copy_from_slice(&signing_key);
+                                      let keypair = SigningKey::from_bytes(&seed);
+                                      sign_repo_commit(&node_id_str, &commit_hash, &repo_url, &keypair).to_bytes().to_vec()
+                                  } else {
+                                      Vec::new()
+                                  };
+                         let repo_commit = RepoCommit {
+                              commit: commit_hash,
+                              repo_url: repo_url.to_string(),
+                              signature,
+                          };
+                         write_message(&mut send, &DriftMessage::RepoCommit(repo_commit)).await?;
+                         info!("sent RepoCommit to coordinator");
+                         train_config = Some(config);
+                     }
                     DriftMessage::TrainingReady => {
                         info!("TrainingReady received");
                         training_ready_received = true;
@@ -601,10 +612,4 @@ fn run_git_ls_remote(repo_path: &std::path::Path) -> Option<String> {
         .map(|hash| hash.to_string())
 }
 
-fn sign_with_iroh_key(public_key: &PublicKey, commit: &str, repo_url: &str) -> Result<Vec<u8>> {
-    let mut hasher = Sha256::new();
-    hasher.update(public_key.as_bytes());
-    hasher.update(commit.as_bytes());
-    hasher.update(repo_url.as_bytes());
-    Ok(hasher.finalize().to_vec())
-}
+

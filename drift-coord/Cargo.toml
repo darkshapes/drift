@@ -17,8 +17,8 @@ clap.workspace = true
 
 time = { version = "0.3", default-features = false, features = ["serde"] }
 thiserror = "1"
-rand = "0.8"
-ed25519-dalek = { version = "2", features = ["rand_core"] }
+rand = { workspace = true }
+ed25519-dalek = { path = "../vendor/ed25519-dalek-3.0.0-pre.1", features = ["rand_core"] }
 
 [dev-dependencies]
 temp-env = "0.3"
