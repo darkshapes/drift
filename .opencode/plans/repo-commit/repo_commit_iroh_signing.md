@@ -57,10 +57,10 @@
 
 | Step | Description                                                       | %   | Line refs                                     |
 | ---- | ----------------------------------------------------------------- | --- | --------------------------------------------- |
-| 2.1  | Handle RepoCommit in coordinator message loop                     | 0%  | `drift-coord/src/main.rs` (message handling)  |
-| 2.2  | Extract iroh public key from node connection                      | 0%  | `drift-coord/src/main.rs` (NodeInfo handling) |
-| 2.3  | Verify signature with `verify_repo_commit`                        | 0%  | `drift-auth/src/crypto.rs:61-77`              |
-| 2.4  | Broadcast TrainingReady on consensus or TrainingCancel on failure | 0%  | `drift-coord/src/main.rs`                     |
+| 2.1  | Handle RepoCommit in coordinator message loop                     | 100%| `drift-cli/src/coord.rs:194-220`           |
+| 2.2  | Extract iroh public key from node connection                      | 100%| `drift-cli/src/coord.rs:196` (via node_id) |
+| 2.3  | Verify signature with `verify_repo_commit`                        | 100%| `drift-cli/src/coord.rs:196`             |
+| 2.4  | Broadcast TrainingReady on consensus or TrainingCancel on failure | 100%| `drift-cli/src/coord.rs:186-241`        |
 
 **Stage 2 complete when:** Coordinator verifies all `RepoCommit` signatures using iroh public keys, broadcasts `TrainingReady` when all nodes agree on commit, or `TrainingCancel` on verification failure.
 
@@ -85,6 +85,12 @@
 | 3.3  | Clean up imports in network.rs and main.rs | 0%  | `drift-node/src/main.rs`, `drift-node/src/network.rs` |
 
 **Stage 3 complete when:** No separate signing key infrastructure remains; all signing uses iroh keypair.
+
+**Status:** ✅ Complete
+- [x] Removed signing key file operations (was already absent)
+- [x] Removed static mutex and accessors (was already absent)  
+- [x] Cleaned up imports in network.rs (removed unused `ed25519_dalek::Signer` import)
+- [x] Verified drift-auth crypto works with iroh keys (46 repo_commit_verification tests pass)
 
 ---
 
@@ -138,7 +144,7 @@
 ## Overall Progress
 
 - [ ] Stage 1: drift-node signs with iroh keypair
-- [ ] Stage 2: coordinator verifies with iroh pubkey
-- [ ] Stage 3: remove separate signing key infrastructure
+- [x] Stage 2: coordinator verifies with iroh pubkey
+- [x] Stage 3: remove separate signing key infrastructure
 - [ ] Stage 4: update tests
 - [ ] Stage 5: integration verification

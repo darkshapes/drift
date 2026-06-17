@@ -2,21 +2,22 @@ use std::time::{Duration, Instant};
 
 use anyhow::Result;
 use drift_proto::{read_message, write_message, DriftMessage, DRIFT_ALPN, LocalShardState, TrainConfig, ShardAssignment, RepoCommit};
-use iroh::Endpoint;
-use ed25519_dalek::Signer;
+use iroh::{Endpoint, EndpointAddr};
+use iroh::endpoint::RelayMode;
 use sha2::{Sha256, Digest};
 use tracing::{info, warn};
 
-pub async fn create_endpoint() -> Result<Endpoint> {
-    let endpoint = Endpoint::builder()
-       .alpns(vec![DRIFT_ALPN.to_vec()])
-       .bind()
-       .await?;
+pub async fn create_endpoint() -> Result<(Endpoint, EndpointAddr)> {
+    let endpoint = Endpoint::empty_builder(RelayMode::Disabled)
+        .alpns(vec![DRIFT_ALPN.to_vec()])
+        .bind()
+        .await?;
 
     let node_id = endpoint.id();
     info!(%node_id, "endpoint bound");
 
-    Ok(endpoint)
+    let addr = endpoint.addr();
+    Ok((endpoint, addr))
 }
 
 pub async fn handle_connection(
@@ -328,5 +329,27 @@ pub async fn handle_completion(
 }
 
 async fn get_git_commit(repo_url: &str) -> Result<String> {
-    Ok("dummy".to_string())
+    if !repo_url.contains("://") {
+        let output = std::process::Command::new("git")
+            .args(["-C", repo_url, "rev-parse", "HEAD"])
+            .output()?;
+        if output.status.success() {
+            return Ok(String::from_utf8_lossy(&output.stdout).trim().to_string());
+        }
+    }
+    let output = std::process::Command::new("git")
+        .args(["ls-remote", repo_url, "HEAD"])
+        .output()?;
+
+    if !output.status.success() {
+        anyhow::bail!("git ls-remote failed for {}", repo_url);
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    stdout
+        .lines()
+        .next()
+        .and_then(|line| line.split_whitespace().next())
+        .map(|hash| hash.to_string())
+        .ok_or_else(|| anyhow::anyhow!("no HEAD ref found"))
 }

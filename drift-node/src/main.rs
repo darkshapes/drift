@@ -74,7 +74,8 @@ async fn join(name: Option<String>) -> Result<()> {
         gpus.iter().map(|g| g.vram_mb).sum()
     };
 
-    let endpoint = Arc::new(network::create_endpoint().await?);
+    let (endpoint, _addr) = network::create_endpoint().await?;
+    let endpoint = Arc::new(endpoint);
     let node_id = endpoint.id();
 
     let node_id_str = node_id.to_string();
