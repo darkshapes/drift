@@ -19,3 +19,15 @@ anyhow = { workspace = true }
 ed25519-dalek = { path = "../vendor/ed25519-dalek-3.0.0-pre.1", features = ["rand_core"] }
 rand = { workspace = true }
 toml = "0.5"
+
+[[test]]
+name = "stage1_signing"
+path = "tests/stage1_signing.rs"
+
+[[test]]
+name = "training_with_progress"
+path = "tests/training_with_progress.rs"
+
+[[test]]
+name = "script_discovery_failure"
+path = "tests/script_discovery_failure.rs"

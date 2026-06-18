@@ -12,10 +12,17 @@
 
 ### The Problem
 
-The test fails because `Endpoint::builder()` includes DNS resolution:
+The test hangs because `Endpoint::builder()` includes DNS resolution during `connect()`:
 1. Both endpoints use `Endpoint::builder().alpns(...).bind()` with default DNS
 2. `coord_endpoint.connect(node_pubkey_for_coord, DRIFT_ALPN)` triggers DNS lookup
 3. DNS fails with `No addressing information available` - no TXT records exist
+4. Test times out waiting for connection
+
+### Root Cause Analysis
+
+- `Endpoint::builder()` uses preset `presets::N0` which includes DNS resolver
+- `connect()` performs address lookup before establishing QUIC connection
+- Local test endpoints have no DNS records, causing lookup failure
 
 ### Step-by-step
 
@@ -28,11 +35,11 @@ The test fails because `Endpoint::builder()` includes DNS resolution:
 
 | Step | Description                                  | %   | Line refs                                   |
 | ---- | ---------------------------------------------- | --- | ------------------------------------------- |
-| 1.1  | Replace Endpoint::builder with empty_builder | 0%  | `drift-node/src/network.rs:9-13`            |
-| 1.2  | Get node's addr() after binding              | 0%  | `drift-node/src/network.rs:15-18`         |
-| 1.3  | Connect using direct EndpointAddr           | 0%  | `drift-node/tests/stage1_signing.rs:60`   |
+| 1.1  | Replace Endpoint::builder with empty_builder | 0%  | `drift-node/src/network.rs:10-14`            |
+| 1.2  | Get node's addr() after binding              | 0%  | `drift-node/src/network.rs:19`               |
+| 1.3  | Connect using direct EndpointAddr            | 0%  | `drift-node/tests/stage1_signing.rs:61`      |
 
-**Stage 1 complete when:** Test connects without DNS lookup
+**Stage 1 complete when:** Test connects without DNS lookup (connection establishes within seconds)
 
 ---
 
@@ -41,7 +48,7 @@ The test fails because `Endpoint::builder()` includes DNS resolution:
 ### Step-by-step
 
 1. Build workspace: `cargo build --workspace`
-2. Run the test: `cargo test --package drift-node test_repo_commit_signed_with_iroh_key`
+2. Run the test: `cargo test --package drift-node test_repo_commit_signed_with_iroh_key -- --test-threads=1 --nocapture`
 3. Verify TrainConfig is sent with `train_repo_url`
 4. Verify Node receives config, calls `get_git_commit`, signs with iroh key
 5. Verify Node sends `RepoCommit` back to coordinator
@@ -53,9 +60,9 @@ The test fails because `Endpoint::builder()` includes DNS resolution:
 | ---- | ------------------------------------- | --- | -------------------------------------------- |
 | 2.1  | Build workspace                      | 0%  | `cargo build --workspace`                   |
 | 2.2  | Run test                             | 0%  | `cargo test --package drift-node`          |
-| 2.3  | Verify TrainConfig flow              | 0%  | `drift-node/src/network.rs:63-112`        |
-| 2.4  | Verify RepoCommit response          | 0%  | `drift-node/src/network.rs:90-112`       |
-| 2.5  | Verify signature verification        | 0%  | `drift-node/tests/stage1_signing.rs:89-94`|
+| 2.3  | Verify TrainConfig flow              | 0%  | `drift-node/src/network.rs:63-88`        |
+| 2.4  | Verify RepoCommit response          | 0%  | `drift-node/src/network.rs:88-106`       |
+| 2.5  | Verify signature verification        | 0%  | `drift-node/tests/stage1_signing.rs:90-92`|
 
 **Stage 2 complete when:** Test passes, verifying full TrainConfig→RepoCommit flow with iroh keypair signing.
 

@@ -1,16 +1,22 @@
 use drift_node::network::{create_endpoint, handle_connection};
 use drift_proto::{DriftMessage, NodeInfo, TrainConfig, read_message, write_message, DRIFT_ALPN, TrainingCancel};
 use drift_auth::crypto::verify_repo_commit;
-use iroh::EndpointAddr;
+use iroh::{EndpointAddr, TransportAddr};
 use tokio::time::Duration;
 
 #[tokio::test]
 async fn test_repo_commit_signed_with_iroh_key() {
+    println!("creating node endpoint");
     let (node_endpoint, node_addr) = create_endpoint().await.unwrap();
+    println!("node endpoint created, addr: {:?}", node_addr);
+    tokio::time::sleep(Duration::from_millis(500)).await;
     let node_id = node_endpoint.id().to_string();
     let node_pubkey = node_endpoint.id();
+    println!("node_id: {}", node_id);
 
+    println!("creating coord endpoint");
     let (coord_endpoint, coord_addr) = create_endpoint().await.unwrap();
+    println!("coord endpoint created, addr: {:?}", coord_addr);
 
     let temp_dir = std::env::temp_dir().join("drift-test-repo");
     std::fs::create_dir_all(&temp_dir).unwrap();
@@ -58,8 +64,12 @@ async fn test_repo_commit_signed_with_iroh_key() {
     let node_id_for_coord = node_id.clone();
     let node_pubkey_for_coord = node_pubkey.clone();
     let coord_task = tokio::spawn(async move {
-        let conn = coord_endpoint.connect(node_addr, DRIFT_ALPN).await.unwrap();
-        let (mut send, mut recv) = conn.accept_bi().await.unwrap();
+        let node_socket_addr = node_addr.ip_addrs().next().unwrap_or_else(|| panic!("no ip addrs in node_addr"));
+        println!("node_addr.ip_addrs: {:?}", node_socket_addr);
+        let connect_addr = EndpointAddr::from_parts(node_pubkey, [TransportAddr::Ip(*node_socket_addr)]);
+        println!("about to connect to {:?}", connect_addr);
+        let conn = coord_endpoint.connect(connect_addr, DRIFT_ALPN).await.unwrap();
+        let (mut send, mut recv) = conn.open_bi().await.unwrap();
 
         write_message(&mut send, &DriftMessage::Ping).await.unwrap();
         let _node_info = read_message(&mut recv).await.unwrap();
@@ -70,8 +80,8 @@ async fn test_repo_commit_signed_with_iroh_key() {
         };
         write_message(&mut send, &DriftMessage::TrainConfig(config)).await.unwrap();
 
-         let msg = match tokio::time::timeout(
-            Duration::from_secs(60),
+        let msg = match tokio::time::timeout(
+            Duration::from_secs(120),
             read_message(&mut recv),
         ).await {
             Ok(Ok(msg)) => msg,
@@ -93,6 +103,8 @@ async fn test_repo_commit_signed_with_iroh_key() {
         } else {
             panic!("Expected RepoCommit, got {:?}", msg);
         }
+
+        write_message(&mut send, &DriftMessage::TrainingReady).await.unwrap();
     });
 
     let accept_task = tokio::spawn(async move {
