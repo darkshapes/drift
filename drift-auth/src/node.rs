@@ -215,7 +215,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_sign_and_send_auth() -> anyhow::Result<()> {
-        let mut rng = rand::rngs::OsRng;
+        let mut rng = crate::rng::CryptoOsRng::new();
         let kp = ed25519_dalek::SigningKey::generate(&mut rng);
         let mut coord = MockCoordinator::new();
 
@@ -229,7 +229,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_sign_and_send_auth_multiple_nodes() -> anyhow::Result<()> {
-        let mut rng = rand::rngs::OsRng;
+        let mut rng = crate::rng::CryptoOsRng::new();
 
         let keypairs: Vec<ed25519_dalek::SigningKey> = (0..3)
             .map(|_| ed25519_dalek::SigningKey::generate(&mut rng))
@@ -256,7 +256,7 @@ mod tests {
 
     #[test]
     fn test_verify_aggregate_success() {
-        let mut rng = rand::rngs::OsRng;
+        let mut rng = crate::rng::CryptoOsRng::new();
 
         let msg = AuthMessage::with_values("node1", "abc123", 1000u64, 42u64, 1u64);
 
@@ -278,7 +278,7 @@ mod tests {
 
     #[test]
     fn test_verify_aggregate_repo_hash_mismatch() {
-        let mut rng = rand::rngs::OsRng;
+        let mut rng = crate::rng::CryptoOsRng::new();
 
         let msg = AuthMessage::with_values("node1", "abc123", 1000u64, 42u64, 1u64);
 
@@ -300,7 +300,7 @@ mod tests {
 
     #[test]
     fn test_verify_aggregate_threshold_not_met() {
-        let mut rng = rand::rngs::OsRng;
+        let mut rng = crate::rng::CryptoOsRng::new();
 
         let msg = AuthMessage::with_values("node1", "abc123", 1000u64, 42u64, 1u64);
 
@@ -322,7 +322,7 @@ mod tests {
 
     #[test]
     fn test_verify_aggregate_unknown_node() {
-        let mut rng = rand::rngs::OsRng;
+        let mut rng = crate::rng::CryptoOsRng::new();
 
         let msg = AuthMessage::with_values("node1", "abc123", 1000u64, 42u64, 1u64);
 
@@ -344,7 +344,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_auth_with_retry_success_first_attempt() -> anyhow::Result<()> {
-        let mut rng = rand::rngs::OsRng;
+        let mut rng = crate::rng::CryptoOsRng::new();
         let kp = ed25519_dalek::SigningKey::generate(&mut rng);
         let mut coord = MockCoordinator::new();
 
@@ -355,7 +355,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_auth_with_retry_success_after_failures() -> anyhow::Result<()> {
-        let mut rng = rand::rngs::OsRng;
+        let mut rng = crate::rng::CryptoOsRng::new();
         let kp = ed25519_dalek::SigningKey::generate(&mut rng);
         let mut coord = MockCoordinator::with_fail_after(2);
 
@@ -366,7 +366,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_auth_with_retry_exhausted() -> anyhow::Result<()> {
-        let mut rng = rand::rngs::OsRng;
+        let mut rng = crate::rng::CryptoOsRng::new();
         let kp = ed25519_dalek::SigningKey::generate(&mut rng);
         let mut coord = MockCoordinator::with_fail_after(5);
 
@@ -429,7 +429,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_full_node_auth_flow() -> anyhow::Result<()> {
-        let mut rng = rand::rngs::OsRng;
+        let mut rng = crate::rng::CryptoOsRng::new();
 
         let node_kp = ed25519_dalek::SigningKey::generate(&mut rng);
         let _node_pubkey = iroh::PublicKey::from_bytes(node_kp.verifying_key().as_bytes()).unwrap();
@@ -464,7 +464,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_full_node_auth_flow_multiple_nodes() -> anyhow::Result<()> {
-        let mut rng = rand::rngs::OsRng;
+        let mut rng = crate::rng::CryptoOsRng::new();
 
         let keypairs: Vec<ed25519_dalek::SigningKey> = (0..5)
             .map(|_| ed25519_dalek::SigningKey::generate(&mut rng))
@@ -506,8 +506,8 @@ pub struct NodeIdentity {
 impl NodeIdentity {
     /// Create new node identity with generated keypair
     pub fn new(node_id: &str) -> Result<Self, anyhow::Error> {
-        let mut rng = rand::rngs::OsRng;
-        let keypair = ed25519_dalek::SigningKey::generate(&mut rng);
+        let seed: [u8; 32] = rand::random();
+        let keypair = ed25519_dalek::SigningKey::from_bytes(&seed);
         Ok(Self {
             node_id: node_id.to_string(),
             keypair,
@@ -745,7 +745,7 @@ mod plan6_tests {
 
     #[test]
     fn test_verify_aggregate_v2_success() -> Result<()> {
-        let mut rng = rand::rngs::OsRng;
+        let mut rng = crate::rng::CryptoOsRng::new();
         let msg = AuthMessage::with_values("node1", "abc123", 1000u64, 42u64, 1u64);
 
         let kp = ed25519_dalek::SigningKey::generate(&mut rng);
@@ -763,7 +763,7 @@ mod plan6_tests {
 
     #[test]
     fn test_verify_aggregate_v2_repo_hash_mismatch() -> Result<()> {
-        let mut rng = rand::rngs::OsRng;
+        let mut rng = crate::rng::CryptoOsRng::new();
         let msg = AuthMessage::with_values("node1", "abc123", 1000u64, 42u64, 1u64);
 
         let kp = ed25519_dalek::SigningKey::generate(&mut rng);
@@ -788,7 +788,7 @@ mod plan6_tests {
 
     #[test]
     fn test_verify_aggregate_v2_unknown_node() -> Result<()> {
-        let mut rng = rand::rngs::OsRng;
+        let mut rng = crate::rng::CryptoOsRng::new();
         let msg = AuthMessage::with_values("node1", "abc123", 1000u64, 42u64, 1u64);
 
         let kp = ed25519_dalek::SigningKey::generate(&mut rng);
@@ -806,7 +806,7 @@ mod plan6_tests {
 
     #[test]
     fn test_verify_aggregate_v2_multiple_nodes() -> Result<()> {
-        let mut rng = rand::rngs::OsRng;
+        let mut rng = crate::rng::CryptoOsRng::new();
 
         let keypairs: Vec<ed25519_dalek::SigningKey> = (0..5)
             .map(|_| ed25519_dalek::SigningKey::generate(&mut rng))

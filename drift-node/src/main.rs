@@ -1,3 +1,4 @@
+use std::sync::Arc;
 use drift_node::{gpu, network, training};
 
 use anyhow::Result;
@@ -73,8 +74,8 @@ async fn join(name: Option<String>) -> Result<()> {
         gpus.iter().map(|g| g.vram_mb).sum()
     };
 
-    let keypair = network::load_or_create_keypair().await?;
-    let endpoint = network::create_endpoint_with_keypair(keypair).await?;
+    let (endpoint, _addr) = network::create_endpoint().await?;
+    let endpoint = Arc::new(endpoint);
     let node_id = endpoint.id();
 
     let node_id_str = node_id.to_string();
@@ -168,7 +169,8 @@ async fn join(name: Option<String>) -> Result<()> {
 
     let accept_loop = async {
         loop {
-            let incoming = match endpoint.accept().await {
+            let ep = endpoint.clone();
+            let incoming = match ep.accept().await {
                 Some(incoming) => incoming,
                 None => {
                     info!("endpoint closed");
@@ -181,7 +183,7 @@ async fn join(name: Option<String>) -> Result<()> {
             tokio::spawn(async move {
                 match incoming.await {
                     Ok(conn) => {
-                        if let Err(e) = network::handle_connection(conn, node_info, &node_id_copy).await {
+                        if let Err(e) = network::handle_connection(&*ep, conn, node_info, &node_id_copy).await {
                             error!("connection handler error: {}", e);
                         }
                     }

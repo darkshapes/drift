@@ -237,7 +237,7 @@ mod tests {
 
     #[test]
     fn test_signed_auth_message_sign_verify() {
-        let mut rng = rand::rngs::OsRng;
+        let mut rng = crate::rng::CryptoOsRng::new();
         let kp = ed25519_dalek::SigningKey::generate(&mut rng);
 
         let msg = AuthMessage::with_values("node1", "abc123", 1000u64, 42u64, 1u64);
@@ -249,7 +249,7 @@ mod tests {
 
     #[test]
     fn test_signed_auth_message_verify_wrong_key() {
-        let mut rng = rand::rngs::OsRng;
+        let mut rng = crate::rng::CryptoOsRng::new();
         let kp1 = ed25519_dalek::SigningKey::generate(&mut rng);
         let kp2 = ed25519_dalek::SigningKey::generate(&mut rng);
 
@@ -262,7 +262,7 @@ mod tests {
 
     #[test]
     fn test_aggregate_auth_message_create_verify() {
-        let mut rng = rand::rngs::OsRng;
+        let mut rng = crate::rng::CryptoOsRng::new();
 
         let msg = AuthMessage::with_values("node1", "abc123", 1000u64, 42u64, 1u64);
 
@@ -287,7 +287,7 @@ mod tests {
 
     #[test]
     fn test_aggregate_auth_message_insufficient_signatures() {
-        let mut rng = rand::rngs::OsRng;
+        let mut rng = crate::rng::CryptoOsRng::new();
         let msg = AuthMessage::with_values("node1", "abc123", 1000u64, 42u64, 1u64);
 
         let keypairs: Vec<ed25519_dalek::SigningKey> = (0..2).map(|_| ed25519_dalek::SigningKey::generate(&mut rng)).collect();
@@ -303,7 +303,7 @@ mod tests {
 
     #[test]
     fn test_aggregate_auth_message_mismatched_messages() {
-        let mut rng = rand::rngs::OsRng;
+        let mut rng = crate::rng::CryptoOsRng::new();
 
         let msg1 = AuthMessage::with_values("node1", "abc123", 1000u64, 42u64, 1u64);
         let msg2 = AuthMessage::with_values("node2", "def456", 1000u64, 42u64, 1u64);
@@ -326,7 +326,7 @@ mod tests {
 
     #[test]
     fn test_signed_auth_message_roundtrip() {
-        let mut rng = rand::rngs::OsRng;
+        let mut rng = crate::rng::CryptoOsRng::new();
         let kp = ed25519_dalek::SigningKey::generate(&mut rng);
 
         let msg = AuthMessage::with_values("node1", "abc123", 1000u64, 42u64, 1u64);
@@ -341,7 +341,7 @@ mod tests {
 
     #[test]
     fn test_aggregate_auth_message_roundtrip() {
-        let mut rng = rand::rngs::OsRng;
+        let mut rng = crate::rng::CryptoOsRng::new();
 
         let msg = AuthMessage::with_values("node1", "abc123", 1000u64, 42u64, 1u64);
 

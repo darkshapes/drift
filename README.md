@@ -125,6 +125,59 @@ RUST_LOG=debug ./target/release/drift join
 
 ## Architecture
 
+### End-to-End Operation
+
+| Library                        | Purpose                                                      |
+| ------------------------------ | ------------------------------------------------------------ |
+| [drift-auth](../drift-auth/)   | Ed25519 key generation, signing, token validation, LRU cache |
+| [drift-proto](../drift-proto/) | Message types, serialization, protocol framing, ALPN         |
+| [drift-coord](../drift-coord/) | Peer discovery, session negotiation, training orchestration  |
+| [drift-node](../drift-node/)   | node runtime, VRAM tracking, status monitoring               |
+
+| library     | tasks |
+| ----------- | ----- |
+| drift-cli   | A, B  |
+| drift-coord | C     |
+| drift-node  | D     |
+| drift-auth  | E     |
+
+```
+                       ,----------------------------.     TrainConfig
+                      | ,--------------------------. |    ShardAssignment
+                      || ,------------------------. || C. CheckpointInfo
+                      ||| ,----------------------. |||    TrainingReady/TrainingCancel
+                      |||| ,--------------------. ||||    NoMoreWork
+                     ╲|||||╱                     |||||    AssignNext
+         drift-cli -> drift-node -------.        |||||
+         drift-cli -> drift-node --------\       |||||
+A. Join  drift-cli -> drift-node --------- >= drift-coord
+         drift-cli -> drift-node --------/        ╱|╲
+         drift-cli -> drift-node -------'          |
+             |        | ╱|╲        D.              | B. Train
+             |       ╲|╱ |          NodeInfo       |
+             |     drift-auth       TrainProgress  |
+             |     E. RepoCommit    AskForMoreWork |
+             |           			Heartbeat      |
+             | 		                               |
+              `-----------------------------------'
+```
+
+### Protocol Flow (ALPN: `drift/0`)
+
+1. Coordinator initiates QUIC connection to node, sends `Ping` and broadcasts training repo path in `TrainConfig`,
+2. Node responds with `RepoCommit` containing the commit hash of the current branch signed by the node Iroh key.
+3. Coordinator receives all node commit hashes. Training ends with `TrainingCancel` broadcast unless all commits match, signaled by `TrainingReady` broadcast.
+4. Node responds to `TrainingReady` with `NodeInfo` containing GPU name, VRAM, compute capability (or shuts down if `TrainingCancel`)
+5. Coordinator broadcasts `ShardAssignment` to all nodes.
+6. Nodes download training scripts, data, and execute at their own pace.
+7. Nodes stream `TrainProgress` updates back to coordinator
+8. If a node fails, work is held by coordinator as `AssignNext`, awaiting next free node to `AskForMoreWork`
+9. On receiving NoMoreWork or timeout, nodes shut down.
+
+All traffic is encrypted end-to-end via QUIC.<br>
+NAT hole-punching is handled automatically by iroh, with relay fallback.<br>
+Messages are length-prefixed JSON over QUIC bidirectional streams.<br>
+
 ### Project Structure
 
 ```
@@ -137,33 +190,33 @@ drift/
 ├── drift-proto/            # Protocol definitions
 │   ├── src/lib.rs           # Message types, framing, ALPN "drift/0"
 │   └── tests/
-│       ├── integration.rs    # Full handshake test suite
+│       ├── integration.rs   # Full handshake test suite
 │       ├── training.rs      # End-to-end training pipeline
 │       └── stress.rs        # Bulk message and gradient tests
 │
 ├── drift-coord/           # Coordinator binary
 │   └── src/
 │       ├── main.rs           # CLI: coord, train commands
-│       ├── scheduler.rs     # Shard assignment by GPU capability
+│       ├── scheduler.rs      # Shard assignment by GPU capability
 │       ├── checkpoint.rs     # Checkpoint management
-│       └── monitor.rs       # Health monitoring, progress display
+│       └── monitor.rs        # Health monitoring, progress display
 │
 ├── drift-node/            # Node binary
 │   └── src/
 │       ├── main.rs          # CLI: join, status
 │       ├── gpu.rs           # GPU detection (nvidia-smi, apple metal)
-│       ├── network.rs      # iroh endpoint, connection handling
-│       └── training.rs     # Local training loop subprocess
+│       ├── network.rs       # iroh endpoint, connection handling
+│       └── training.rs      # Local training loop subprocess
 │
 ├── drift-cli/              # Unified CLI entry point
 │   └── src/
 │       ├── main.rs          # CLI: join, train, status, coord
-│       ├── node.rs           # Node lifecycle logic
-│       └── coord.rs           # Coordinator logic
+│       ├── node.rs          # Node lifecycle logic
+│       └── coord.rs         # Coordinator logic
 │
 └── examples/
     ├── mock_train.py       # Mock training script for testing
-    └── train.yaml           # Example training configuration
+    └── train.yaml          # Example training configuration
 ```
 
 ### Purpose
@@ -175,47 +228,4 @@ Distributed training coordination for consumer hardware (GPUs and CPUs) that:
 - Supports Apple Silicon Metal, NVIDIA CUDA, AMD ROCm, and Vulkan backends
 - Communicates over QUIC-encrypted iroh tunnels with automatic NAT hole-punching
 
-## End-to-End Operation
-
-```
-┌─────────────┐    ┌───────────┐    ┌─────────────┐
-│ Coordinator │◄───│  Node A   │◄───│    Node B   │
-└─────────────┘    └───────────┘    └─────────────┘
-        │               │                     │
-   ALPN: drift/0    ping/pong           TrainConfig/ShardAssignment
-```
-
-### Protocol Flow (ALPN: `drift/0`)
-
-1. **Handshake**: Coordinator initiates QUIC connection to node, sends `Ping` and training repo path
-2. **Validate**: Node responds with `RepoCommit` containing the commit hash of the current branch signed by the Iroh key.
-3. **Confirm**: Coordinator receives all node commit hashes & replies `TrainingCancel`. Training ends unless all commits match signaled by `TrainingReady`
-4. **Discovery**: Node responds to `TrainingReady` with `NodeInfo` containing GPU name, VRAM, compute capability
-5. **Configuration**: Coordinator sends `TrainConfig`, `ShardAssignment`
-6. **Training Loop**:
-   - Nodes train locally at their own pace
-   - Nodes send periodic `BarrierSync` per step
-   - Coordinator replies `BarrierReady` for checkpoint coordination
-7. **Progress**: Node streams `TrainProgress` updates back to coordinator
-8. **Finalization**: Checkpoint aggregation on coordinated barrier
-
-All traffic is encrypted end-to-end via QUIC. NAT hole-punching is handled automatically by iroh, with relay fallback. Messages are length-prefixed JSON over QUIC bidirectional streams.
-
 ### Libraries
-
-| Library                        | Purpose                                                      |
-| ------------------------------ | ------------------------------------------------------------ |
-| [drift-auth](../drift-auth/)   | Ed25519 key generation, signing, token validation, LRU cache |
-| [drift-proto](../drift-proto/) | Message types, serialization, protocol framing, ALPN         |
-| [drift-coord](../drift-coord/) | Peer discovery, session negotiation, training orchestration  |
-| [drift-node](../drift-node/)   | node runtime, VRAM tracking, status monitoring               |
-
-### CLI Binaries
-
-```
-┌──────────────┐     ┌─────────────────┐     ┌───────────────────┐
-│  drift-cli   │     │   drift-node    │     │    drift-coord    │
-├────────────────────────────────────────────────────────────────┤
-│         Unified entry point (join/train/status)                │
-└──────────────┘     └─────────────────┘     └───────────────────┘
-```

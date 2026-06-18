@@ -13,6 +13,7 @@
 //! - Item 5: Unit tests for sign/verify/aggregate
 
 pub mod crypto;
+pub mod rng;
 pub mod messages;
 pub mod aggregator;
 pub mod node;
@@ -26,6 +27,8 @@ pub use crypto::{
     verify_signature_with_iroh_pubkey,
     aggregate_signatures,
 };
+
+pub use rng::CryptoOsRng;
 
 pub use config::{
     AuthConfig,

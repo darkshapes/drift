@@ -187,13 +187,13 @@ git_commit: None,
         }
     }
 
-    #[test]
+   #[test]
     fn test_drift_message_auth_response_variant() {
-        use ed25519_dalek::Signer;
-        use rand::rngs::OsRng;
+         use ed25519_dalek::Signer;
+          use drift_auth::CryptoOsRng;
 
-        let mut rng = OsRng;
-        let keypair = ed25519_dalek::SigningKey::generate(&mut rng);
+         let mut rng = drift_auth::CryptoOsRng::new();
+         let keypair = ed25519_dalek::SigningKey::generate(&mut rng);
         let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
         let auth_msg = AuthMessage::with_values("node1", "abc123", now, 42u64, 1u64);
         let signed = SignedAuthMessage::sign(&auth_msg, &keypair).unwrap();
@@ -208,14 +208,14 @@ git_commit: None,
             _ => panic!("expected AuthResponse variant"),
         }
     }
-
+     
     #[test]
     fn test_drift_message_auth_aggregate_variant() {
-        use ed25519_dalek::Signer;
-        use rand::rngs::OsRng;
+          use ed25519_dalek::Signer;
+         use drift_auth::CryptoOsRng;
 
-        let mut rng = OsRng;
-        let keypair = ed25519_dalek::SigningKey::generate(&mut rng);
+          let mut rng = drift_auth::CryptoOsRng::new();
+         let keypair = ed25519_dalek::SigningKey::generate(&mut rng);
         let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
         let auth_msg = AuthMessage::with_values("node1", "abc123", now, 42u64, 1u64);
 
@@ -306,12 +306,12 @@ git_commit: None,
         assert_eq!(config.auth_threshold, 3);
     }
 
-    #[test]
-    fn test_auth_handshake_full_flow() {
+ #[test]
+   fn test_auth_handshake_full_flow() {
         use ed25519_dalek::Signer;
-        use rand::rngs::OsRng;
+        use drift_auth::CryptoOsRng;
 
-        let mut rng = OsRng;
+        let mut rng = drift_auth::CryptoOsRng::new();
         let keypair = ed25519_dalek::SigningKey::generate(&mut rng);
         let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
 

@@ -183,7 +183,7 @@ mod tests {
 
     #[test]
     fn test_aggregator_add_signature() {
-        let mut rng = rand::rngs::OsRng;
+        let mut rng = crate::rng::CryptoOsRng::new();
         let kp = SigningKey::generate(&mut rng);
         let msg = AuthMessage::with_values("node1", "abc123", 1000u64, 42u64, 1u64);
 
@@ -201,7 +201,7 @@ mod tests {
 
     #[test]
     fn test_aggregator_duplicate_signature() {
-        let mut rng = rand::rngs::OsRng;
+        let mut rng = crate::rng::CryptoOsRng::new();
         let kp = SigningKey::generate(&mut rng);
         let msg = AuthMessage::with_values("node1", "abc123", 1000u64, 42u64, 1u64);
 
@@ -221,7 +221,7 @@ mod tests {
 
     #[test]
     fn test_aggregator_unexpected_node() {
-        let mut rng = rand::rngs::OsRng;
+        let mut rng = crate::rng::CryptoOsRng::new();
         let kp = SigningKey::generate(&mut rng);
         let msg = AuthMessage::with_values("node1", "abc123", 1000u64, 42u64, 1u64);
 
@@ -238,7 +238,7 @@ mod tests {
 
     #[test]
     fn test_aggregator_mismatched_messages() {
-        let mut rng = rand::rngs::OsRng;
+        let mut rng = crate::rng::CryptoOsRng::new();
         let kp1 = SigningKey::generate(&mut rng);
         let kp2 = SigningKey::generate(&mut rng);
 
@@ -261,7 +261,7 @@ mod tests {
 
     #[test]
     fn test_aggregator_threshold() {
-        let mut rng = rand::rngs::OsRng;
+        let mut rng = crate::rng::CryptoOsRng::new();
         let keypairs: Vec<SigningKey> = (0..5).map(|_| SigningKey::generate(&mut rng)).collect();
         let msg = AuthMessage::with_values("coordinator", "abc123", 1000u64, 42u64, 1u64);
 
@@ -283,7 +283,7 @@ mod tests {
 
     #[test]
     fn test_aggregator_create_aggregate_success() {
-        let mut rng = rand::rngs::OsRng;
+        let mut rng = crate::rng::CryptoOsRng::new();
         let keypairs: Vec<SigningKey> = (0..5).map(|_| SigningKey::generate(&mut rng)).collect();
         let msg = AuthMessage::with_values("coordinator", "abc123", 1000u64, 42u64, 1u64);
 
@@ -307,7 +307,7 @@ mod tests {
 
     #[test]
     fn test_aggregator_create_aggregate_insufficient() {
-        let mut rng = rand::rngs::OsRng;
+        let mut rng = crate::rng::CryptoOsRng::new();
         let kp = SigningKey::generate(&mut rng);
         let msg = AuthMessage::with_values("coordinator", "abc123", 1000u64, 42u64, 1u64);
 
@@ -353,7 +353,7 @@ mod tests {
 
     #[test]
     fn test_aggregator_missing_nodes() {
-        let mut rng = rand::rngs::OsRng;
+        let mut rng = crate::rng::CryptoOsRng::new();
         let kp = SigningKey::generate(&mut rng);
         let msg = AuthMessage::with_values("coordinator", "abc123", 1000u64, 42u64, 1u64);
 
@@ -377,7 +377,7 @@ mod tests {
 
     #[test]
     fn test_aggregator_missing_nodes_empty() {
-        let mut rng = rand::rngs::OsRng;
+        let mut rng = crate::rng::CryptoOsRng::new();
         let kp = SigningKey::generate(&mut rng);
         let msg = AuthMessage::with_values("coordinator", "abc123", 1000u64, 42u64, 1u64);
 
@@ -398,7 +398,7 @@ mod tests {
 
     #[test]
     fn test_aggregator_threshold_3_of_5() {
-        let mut rng = rand::rngs::OsRng;
+        let mut rng = crate::rng::CryptoOsRng::new();
         let keypairs: Vec<SigningKey> = (0..5).map(|_| SigningKey::generate(&mut rng)).collect();
         let msg = AuthMessage::with_values("coordinator", "abc123", 1000u64, 42u64, 1u64);
 
@@ -424,7 +424,7 @@ mod tests {
 
     #[test]
     fn test_aggregator_threshold_2_of_3() {
-        let mut rng = rand::rngs::OsRng;
+        let mut rng = crate::rng::CryptoOsRng::new();
         let keypairs: Vec<SigningKey> = (0..3).map(|_| SigningKey::generate(&mut rng)).collect();
         let msg = AuthMessage::with_values("coordinator", "abc123", 1000u64, 42u64, 1u64);
 
@@ -458,7 +458,7 @@ mod tests {
 
     #[test]
     fn test_aggregator_collected_count() {
-        let mut rng = rand::rngs::OsRng;
+        let mut rng = crate::rng::CryptoOsRng::new();
         let kp = SigningKey::generate(&mut rng);
         let msg = AuthMessage::with_values("coordinator", "abc123", 1000u64, 42u64, 1u64);
 

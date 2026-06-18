@@ -331,7 +331,7 @@ mod tests {
         let auth = CoordinatorAuth::new(config);
 
         let msg = AuthMessage::with_values("coordinator", "abc123", 1000u64, 42u64, 1u64);
-        let mut rng = rand::rngs::OsRng;
+        let mut rng = drift_auth::CryptoOsRng::new();
         let kp = SigningKey::generate(&mut rng);
         let signed = create_signed_message("coordinator", &msg, &kp);
 
@@ -347,7 +347,7 @@ mod tests {
         let auth = CoordinatorAuth::new(config);
 
         let msg = AuthMessage::with_values("coordinator", "abc123", 1000u64, 42u64, 1u64);
-        let mut rng = rand::rngs::OsRng;
+        let mut rng = drift_auth::CryptoOsRng::new();
         let kp = SigningKey::generate(&mut rng);
         let signed = create_signed_message("coordinator", &msg, &kp);
 
@@ -368,7 +368,7 @@ mod tests {
         auth.register_node("node1".to_string(), tx1);
         auth.register_node("node2".to_string(), tx2);
 
-        let mut rng = rand::rngs::OsRng;
+        let mut rng = drift_auth::CryptoOsRng::new();
         let kp1 = SigningKey::generate(&mut rng);
         let kp2 = SigningKey::generate(&mut rng);
 
@@ -426,7 +426,7 @@ mod tests {
         auth.register_node("n3".to_string(), tx4);
         auth.register_node("n4".to_string(), tx5);
 
-        let mut rng = rand::rngs::OsRng;
+        let mut rng = drift_auth::CryptoOsRng::new();
         let kp = SigningKey::generate(&mut rng);
         let msg = AuthMessage::with_values("coordinator", "abc123", 1000u64, 42u64, 1u64);
 
@@ -451,7 +451,7 @@ mod tests {
         auth.register_node("n1".to_string(), tx2);
         auth.register_node("n2".to_string(), tx3);
 
-        let mut rng = rand::rngs::OsRng;
+        let mut rng = drift_auth::CryptoOsRng::new();
         let kp = SigningKey::generate(&mut rng);
         let msg = AuthMessage::with_values("coordinator", "abc123", 1000u64, 42u64, 1u64);
         let signed = create_signed_message("n0", &msg, &kp);
@@ -528,7 +528,7 @@ mod tests {
         let status = auth.log_status_string();
         assert!(status.contains("3 nodes registered"));
 
-        let mut rng = rand::rngs::OsRng;
+        let mut rng = drift_auth::CryptoOsRng::new();
         let kp1 = SigningKey::generate(&mut rng);
         let kp2 = SigningKey::generate(&mut rng);
 

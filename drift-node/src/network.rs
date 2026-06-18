@@ -1,58 +1,14 @@
-use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use anyhow::Result;
-use drift_auth::crypto::sign_repo_commit;
 use drift_proto::{read_message, write_message, DriftMessage, DRIFT_ALPN, LocalShardState, TrainConfig, ShardAssignment, RepoCommit};
-use ed25519_dalek::SigningKey;
-use iroh::Endpoint;
+use iroh::{Endpoint, EndpointAddr};
+use iroh::endpoint::RelayMode;
 use sha2::{Sha256, Digest};
 use tracing::{info, warn};
 
-static NODE_SIGNING_KEY: Mutex<Option<Vec<u8>>> = Mutex::new(None);
-
-pub fn set_signing_key(key: Vec<u8>) {
-    let mut guard = NODE_SIGNING_KEY.lock().unwrap();
-    *guard = Some(key);
-}
-
-pub async fn load_or_create_signing_key() -> Result<Vec<u8>> {
-    let path = signing_key_path();
-    if path.exists() {
-        let data = std::fs::read(&path)?;
-        if data.len() == 32 {
-            Ok(data)
-        } else {
-            anyhow::bail!("invalid signing key file size");
-        }
-    } else {
-        let key: Vec<u8> = (0..32).map(|_| rand::random()).collect();
-        std::fs::create_dir_all(path.parent().unwrap())?;
-        std::fs::write(&path, &key)?;
-        Ok(key)
-    }
-}
-
-fn signing_key_path() -> std::path::PathBuf {
-    let home = std::env::var("HOME").unwrap_or_else(|_| "~".into());
-    std::path::PathBuf::from(home).join(".drift/identity/signing_key")
-}
-
-pub fn get_signing_key() -> Option<Vec<u8>> {
-    let guard = NODE_SIGNING_KEY.lock().unwrap();
-    guard.clone()
-}
-
-pub async fn load_or_create_keypair() -> Result<Vec<u8>> {
-    load_or_create_signing_key().await
-}
-
-pub async fn create_endpoint_with_keypair(signing_key: Vec<u8>) -> Result<Endpoint> {
-    create_endpoint_with_signing_key(signing_key).await
-}
-
-pub async fn create_endpoint() -> Result<Endpoint> {
-    let endpoint = Endpoint::builder()
+pub async fn create_endpoint() -> Result<(Endpoint, EndpointAddr)> {
+    let endpoint = Endpoint::empty_builder(RelayMode::Disabled)
         .alpns(vec![DRIFT_ALPN.to_vec()])
         .bind()
         .await?;
@@ -60,23 +16,12 @@ pub async fn create_endpoint() -> Result<Endpoint> {
     let node_id = endpoint.id();
     info!(%node_id, "endpoint bound");
 
-    Ok(endpoint)
-}
-
-pub async fn create_endpoint_with_signing_key(signing_key: Vec<u8>) -> Result<Endpoint> {
-    set_signing_key(signing_key);
-    let endpoint = Endpoint::builder()
-        .alpns(vec![DRIFT_ALPN.to_vec()])
-        .bind()
-        .await?;
-
-    let node_id = endpoint.id();
-    info!(%node_id, "endpoint bound with signing key");
-
-    Ok(endpoint)
+    let addr = endpoint.addr();
+    Ok((endpoint, addr))
 }
 
 pub async fn handle_connection(
+    endpoint: &Endpoint,
     conn: iroh::endpoint::Connection,
     node_info_msg: DriftMessage,
     node_id: &str,
@@ -140,28 +85,22 @@ pub async fn handle_connection(
                     }
                     cached_config = Some(config);
 
-                    if let Some(ref train_repo_url) = cached_config.clone() {
-                        if let Some(repo_url) = train_repo_url.train_repo_url.clone() {
-                            match get_git_commit(&repo_url).await {
-                                Ok(commit) => {
-                                    let signing_key = get_signing_key();
-                                    let signature = if let Some(key_bytes) = signing_key {
-                                        if key_bytes.len() == 32 {
-                                            let mut seed = [0u8; 32];
-                                            seed.copy_from_slice(&key_bytes);
-                                            let keypair = SigningKey::from_bytes(&seed);
-                                            sign_repo_commit(node_id, &commit, &repo_url, &keypair).to_bytes().to_vec()
-                                        } else {
-                                            Vec::new()
-                                        }
-                                    } else {
-                                        Vec::new()
-                                    };
-                                    let repo_commit = RepoCommit {
-                                        commit,
-                                        repo_url,
-                                        signature,
-                                    };
+if let Some(ref train_repo_url) = cached_config.clone() {
+                     tracing::info!("about to get repo_url from train_repo_url");
+                     if let Some(repo_url) = train_repo_url.train_repo_url.clone() {
+                         tracing::info!("repo_url from train_repo_url: {}", &repo_url);
+                         match get_git_commit(&repo_url).await {
+    Ok(commit) => {
+        tracing::info!("repo_url from get_git_commit: {}", &repo_url);
+let secret_key = endpoint.secret_key();
+let message = format!("{}|{}|{}", node_id, commit, repo_url);
+let signature = secret_key.sign(message.as_bytes()).to_bytes().to_vec();
+tracing::info!(signature_len = signature.len(), "signature length");
+let repo_commit = RepoCommit {
+    commit,
+    repo_url,
+    signature,
+};
                                     write_message(&mut send, &DriftMessage::RepoCommit(repo_commit)).await?;
                                     info!("sent RepoCommit to coordinator");
                                     standby_start = Some(Instant::now());
@@ -390,25 +329,27 @@ pub async fn handle_completion(
 }
 
 async fn get_git_commit(repo_url: &str) -> Result<String> {
-    use tokio::process::Command;
-
-    let output = Command::new("git")
-        .arg("ls-remote")
-        .arg("HEAD")
-        .arg(repo_url)
-        .output()
-        .await?;
+    if !repo_url.contains("://") {
+        let output = std::process::Command::new("git")
+            .args(["-C", repo_url, "rev-parse", "HEAD"])
+            .output()?;
+        if output.status.success() {
+            return Ok(String::from_utf8_lossy(&output.stdout).trim().to_string());
+        }
+    }
+    let output = std::process::Command::new("git")
+        .args(["ls-remote", repo_url, "HEAD"])
+        .output()?;
 
     if !output.status.success() {
-        anyhow::bail!("git ls-remote failed: {}", String::from_utf8_lossy(&output.stderr));
+        anyhow::bail!("git ls-remote failed for {}", repo_url);
     }
 
     let stdout = String::from_utf8_lossy(&output.stdout);
-    let commit = stdout.split_whitespace().next().unwrap_or("").to_string();
-
-    if commit.is_empty() {
-        anyhow::bail!("empty commit hash from git ls-remote");
-    }
-
-    Ok(commit)
+    stdout
+        .lines()
+        .next()
+        .and_then(|line| line.split_whitespace().next())
+        .map(|hash| hash.to_string())
+        .ok_or_else(|| anyhow::anyhow!("no HEAD ref found"))
 }

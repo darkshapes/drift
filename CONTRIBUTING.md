@@ -98,6 +98,8 @@ This can be addressed in a few ways:
 
 3. Remove the assumption that all nodes must finish. It should be possible to use the partially trained model even if some shards are missing, mathematically a well supported thing to do with flow matching - equivalent to just changing the solver you're using. This we are keen to try but haven't explored yet.
 
+### References
+
 https://arxiv.org/abs/2007.14390 Flower: A Friendly Federated Learning Research Framework<br>
 https://arxiv.org/abs/2103.03239 Moshpit SGD: Communication-Efficient Decentralized Training on Heterogeneous Unreliable Devices<br>
 https://arxiv.org/abs/2103.16257 Model-Contrastive Federated Learning<br>
@@ -168,10 +170,53 @@ On MacOS, building `drift` may require permission from `integration`, `stress`, 
 - checkpoint specific saving
 - container/vm options (smolvm)
 
-```
+drift-cli
+Hardware detection
+Compute capability
+Initialize connection
+Simulate training
+Launch training
+Find local repos
+Git ls-remote
 
-```
+drift-proto
+Message structs and constants
+NodeInfo /// CPU, GPU, Architecture, and rank
+TrainConfig /// Repo URL, Dataset path, checkpoint path, auth threshold
+ShardAssignment /// Division of data by compute per node
+TrainProgress /// Node Training Session Status
+CheckpointInfo /// Resume Training
+Ping /// Check response
+Pong /// Check response
+Heartbeat /// Connection Keepalive
+TrainComplete /// Coordinator signals training is complete.
+TrainingReady /// Coordinator signals nodes to begin training.
+TrainingCancel /// Coordinator broadcasts: commit verification failed, abort.
+RepoCommit /// Node sends commit info for verification.
+AskForMoreWork /// Request any incomplete tasks
+NoMoreWork /// No incomplete tasks available, shut down
+AssignNext /// Next incomplete task, begin
 
-```
+drift-auth
+Sign RepoCommit
 
-```
+drift-node
+Receive all from drift-coord
+Send
+NodeInfo
+TrainProgress
+Pong
+Heartbeat
+RepoCommit
+AskForMoreWork
+
+drift-coord
+Receive all from drift-node
+Send
+TrainConfig
+ShardAssignment
+Ping
+TrainingReady
+TrainingCancel
+NoMoreWork
+AssignNext

@@ -48,12 +48,7 @@ pub fn verify_signature_with_iroh_pubkey(
         .map_err(|_| CryptoError::VerificationFailed)
 }
 
-pub fn sign_repo_commit(
-    node_id: &str,
-    commit: &str,
-    repo_url: &str,
-    keypair: &ed25519_dalek::SigningKey,
-) -> Signature {
+pub fn sign_repo_commit<K: ed25519_dalek::Signer<Signature>>(node_id: &str, commit: &str, repo_url: &str, keypair: &K) -> Signature {
     let message = format!("{}|{}|{}", node_id, commit, repo_url);
     keypair.sign(message.as_bytes())
 }
@@ -97,7 +92,7 @@ mod tests {
     fn test_sign_repo_commit_verify_success() {
         use ed25519_dalek::SigningKey;
 
-        let mut rng = rand::rngs::OsRng;
+        let mut rng = crate::rng::CryptoOsRng::new();
         let kp = SigningKey::generate(&mut rng);
         let io_pk = iroh::PublicKey::from_bytes(kp.verifying_key().as_bytes()).unwrap();
 
@@ -116,7 +111,7 @@ mod tests {
     fn test_sign_repo_commit_verify_wrong_key() {
         use ed25519_dalek::SigningKey;
 
-        let mut rng = rand::rngs::OsRng;
+        let mut rng = crate::rng::CryptoOsRng::new();
         let kp1 = SigningKey::generate(&mut rng);
         let kp2 = SigningKey::generate(&mut rng);
         let io_pk2 = iroh::PublicKey::from_bytes(kp2.verifying_key().as_bytes()).unwrap();
@@ -136,7 +131,7 @@ mod tests {
     fn test_sign_repo_commit_verify_wrong_message() {
         use ed25519_dalek::SigningKey;
 
-        let mut rng = rand::rngs::OsRng;
+        let mut rng = crate::rng::CryptoOsRng::new();
         let kp = SigningKey::generate(&mut rng);
         let io_pk = iroh::PublicKey::from_bytes(kp.verifying_key().as_bytes()).unwrap();
 
@@ -155,7 +150,7 @@ mod tests {
     fn test_sign_repo_commit_verify_invalid_signature_bytes() {
         use ed25519_dalek::SigningKey;
 
-        let mut rng = rand::rngs::OsRng;
+        let mut rng = crate::rng::CryptoOsRng::new();
         let kp = SigningKey::generate(&mut rng);
         let io_pk = iroh::PublicKey::from_bytes(kp.verifying_key().as_bytes()).unwrap();
 
@@ -174,7 +169,7 @@ mod tests {
     fn test_sign_verify_with_iroh_keys() {
         use ed25519_dalek::SigningKey;
 
-        let mut rng = rand::rngs::OsRng;
+        let mut rng = crate::rng::CryptoOsRng::new();
         let kp1 = SigningKey::generate(&mut rng);
         let kp2 = SigningKey::generate(&mut rng);
 
@@ -218,7 +213,7 @@ mod tests {
         use ed25519_dalek::SigningKey;
         use super::Signature;
 
-        let mut rng = rand::rngs::OsRng;
+        let mut rng = crate::rng::CryptoOsRng::new();
         let keypairs: Vec<SigningKey> = (0..5)
             .map(|_| SigningKey::generate(&mut rng))
             .collect();
@@ -260,7 +255,7 @@ mod tests {
         use ed25519_dalek::SigningKey;
         use super::Signature;
 
-        let mut rng = rand::rngs::OsRng;
+        let mut rng = crate::rng::CryptoOsRng::new();
         let keypairs: Vec<SigningKey> = (0..2)
             .map(|_| SigningKey::generate(&mut rng))
             .collect();
