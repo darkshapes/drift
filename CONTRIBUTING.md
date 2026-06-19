@@ -208,3 +208,79 @@ TrainingCancel
 NoMoreWork
 AssignNext
 ```
+
+Remove from drift-proto
+
+```
+Vestigal
+DRIFT_RING_ALPN
+
+    AuthChallenge 	/// Coordinator sends to node: "please authenticate"
+    AuthResponse     	/// Node sends signed auth message to coordinator
+    AuthAggregate	/// Coordinator broadcasts aggregate back to all nodes
+    pub model_path: String,
+    pub dataset_path: String,
+    pub batch_size: u32,
+    pub learning_rate: f64,
+    pub epochs: u32,
+    pub script_entrypoint: Option<String>
+    pub git_commit: Option<String>,
+    pub gpu_compute_capability: Option<f64>
+    pub auth_threshold: usize,
+
+
+
+
+/// ALPN protocol identifier for drift coordinator<->node traffic.
+pub const DRIFT_ALPN: &[u8] = b"drift/0";
+
+/// ALPN protocol identifier for node<->node ring all-reduce traffic.
+pub const DRIFT_RING_ALPN: &[u8] = b"drift-ring/0";
+
+/// Maximum allowed message size (64 MB).
+pub const MAX_MESSAGE_SIZE: usize = 64 * 1024 * 1024;
+
+
+    // New fields for distributed repo-based training
+    /// URL of the repository containing the training script.
+    /// Node should clone this and run the specified entrypoint.
+    #[serde(default)]
+    pub train_repo_url: Option<String>,
+
+    /// HuggingFace repo ID or Git URL for the dataset.
+    /// Node should download/clone this before starting training.
+    #[serde(default)]
+    pub dataset_repo_url: Option<String>,
+
+    /// URLs for datasets (multiple datasets supported).
+    #[serde(default)]
+    pub dataset_urls: Vec<String>,
+
+    /// Optional path within dataset_repo for fine-tuning from local base model.
+    #[serde(default)]
+    pub model_artifact_ref: Option<String>,
+
+   /// Enable multi-signature authentication
+    #[serde(default)]
+    pub enable_auth: bool,
+
+    /// Threshold for signature aggregation (e.g., 3 for 3-of-n).
+    pub auth_threshold: usize
+
+
+
+
+   /// Enable multi-signature authentication
+    #[serde(default)]
+    pub enable_auth: bool,
+
+    /// Threshold for signature aggregation (e.g., 3 for 3-of-n).
+    pub auth_threshold: usize,
+
+    /// Agreed-upon git commit hash (set by coordinator after verification).
+    #[serde(default)]
+    pub git_commit: Option<String>,
+
+    /// GPU compute capability (e.g., 8.9 for CUDA 8.9).
+    #[serde(default)]
+```

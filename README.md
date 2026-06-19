@@ -182,11 +182,11 @@ send TrainingReady, ShardAssignment
                        send TrainProgress
 (or)
 send TrainingCancel
-───────────────────┐
-                   │
-                   │
-                   ↓
-                  end
+───────────────────────────────────────────┐
+                                           │
+                                           │
+                                           ↓
+                                          end
 ```
 
 #### Protocol Flow (ALPN: `drift/0`)

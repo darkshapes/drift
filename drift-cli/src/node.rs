@@ -10,8 +10,7 @@ use tracing::{error, info, warn};
 use crate::ipc::{self, PythonMessage};
 
 
-use drift_auth::crypto::sign_repo_commit;
-use ed25519_dalek::SigningKey;
+
 
 async fn detect_cpu_brand() -> String {
     let output = tokio::process::Command::new("sysctl")
@@ -271,16 +270,10 @@ async fn handle_connection(
                          let repo_url = config.train_repo_url.as_ref().ok_or_else(|| anyhow::anyhow!("No train_repo_url in config"))?;
                          let repo_path = find_local_repo(repo_url).ok_or_else(|| anyhow::anyhow!("Repo not found locally"))?;
                          let commit_hash = run_git_ls_remote(&repo_path).ok_or_else(|| anyhow::anyhow!("git ls-remote failed"))?;
-                         let node_id_str = endpoint.id().to_string();
-                         let mut signing_key = Vec::new(); // placeholder for forwarded signing key from drift-node
-                          let mut signature = if signing_key.len() == 32 {
-                                      let mut seed = [0u8; 32];
-                                      seed.copy_from_slice(&signing_key);
-                                      let keypair = SigningKey::from_bytes(&seed);
-                                      sign_repo_commit(&node_id_str, &commit_hash, &repo_url, &keypair).to_bytes().to_vec()
-                                  } else {
-                                      Vec::new()
-                                  };
+let node_id_str = endpoint.id().to_string();
+    let secret_key = endpoint.secret_key();
+    let message = format!("{}|{}|{}", node_id_str, commit_hash, repo_url);
+    let signature = secret_key.sign(message.as_bytes()).to_bytes().to_vec();
                          let repo_commit = RepoCommit {
                               commit: commit_hash,
                               repo_url: repo_url.to_string(),
