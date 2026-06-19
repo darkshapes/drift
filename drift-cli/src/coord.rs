@@ -194,12 +194,24 @@ pub async fn train(
             match read_message(recv).await {
                 Ok(DriftMessage::RepoCommit(commit)) => {
                     if let Err(e) = verify_repo_commit(&commit, &node_id) {
-                        broadcast_training_cancel(
-                            &mut connections,
-                            &format!("Signature verification failed for node {}: {}", node_id, e),
-                            &repo,
-                        ).await?;
-                        anyhow::bail!("Signature verification failed for node {}", node_id);
+                        let error_msg = e.to_string();
+                        let is_connection_error = error_msg.contains("connection") || error_msg.contains("lost");
+                        
+                        if is_connection_error {
+                            broadcast_training_cancel(
+                                &mut connections,
+                                &format!("Signature verification failed for node {}: {}", node_id, e),
+                                &repo,
+                            ).await?;
+                            anyhow::bail!("Signature verification failed for node {}: {}", node_id, e);
+                        } else {
+                            broadcast_training_cancel(
+                                &mut connections,
+                                &format!("Signature verification failed for node {}: commit {} - {}", node_id, commit.commit, e),
+                                &repo,
+                            ).await?;
+                            anyhow::bail!("Signature verification failed for node {}: commit {}", node_id, commit.commit);
+                        }
                     }
                     repo_commits.push((node_id.clone(), commit));
                     break;
@@ -208,12 +220,13 @@ pub async fn train(
                     warn!(%other, "unexpected message from node {}", node_id);
                 }
                 Err(e) => {
+                    let error_msg = e.to_string();
                     broadcast_training_cancel(
                         &mut connections,
-                        &format!("Node {} connection error: {}", node_id, e),
+                        &format!("Node {} connection error: {}", node_id, error_msg),
                         &repo,
                     ).await?;
-                    anyhow::bail!("Node {} error: {}", node_id, e);
+                    anyhow::bail!("Node {} connection error: {}", node_id, error_msg);
                 }
             }
             tokio::time::sleep(Duration::from_millis(100)).await;
