@@ -167,26 +167,24 @@ A. Join  drift-cli -> drift-node --------- >= drift-coord
 ```
 COORDINATOR TASK                          NODE TASK
 ────────────────────────────────────────────────────────
-cli launch ──────────────────────→
-send Ping
-                       ←────────────────── receive Ping
-                       send NodeInfo
-receive NodeInfo ──────────────────────→
-send TrainConfig
-                       ←────────────────── receive TrainConfig
+cli launch ──────────────────────→                                ┓
+send Ping                                                         ┃ initialization
+                       ←────────────────── receive Ping           ┛
+                       send NodeInfo                              ┓
+receive NodeInfo ──────────────────────→                          ┃ exchange
+send TrainConfig                                                  ┃ specifications
+                       ←────────────────── receive TrainConfig    ┛
                        send RepoCommit                            ┓ verification
 receive RepoCommit────────────────────→                           ┛ handshake
 send TrainingReady, ShardAssignment
-                       ←────────────────── receive TrainingReady,
-                                                  ShardAssignment
-                       send TrainProgress
-(or)
-send TrainingCancel
-───────────────────────────────────────────┐
-                                           │
-                                           │
-                                           ↓
-                                          end
+                       ←────────────────── receive TrainingReady, ┓ verification
+                      send TrainProgress        ShardAssignment   ┛ success
+                                                                    -or-
+receive RepoCommit──────────────────────────┐                     ┓ verification
+send TrainingCancel                         │                     ┛ failure
+                                            │
+                                            ↓
+                                           end
 ```
 
 #### Protocol Flow (ALPN: `drift/0`)
@@ -194,18 +192,20 @@ send TrainingCancel
 1. Coordinator initiates QUIC connection to node, sends `Ping`
 2. Node gets Ping, sends `NodeInfo` containing GPU name, VRAM, compute capability
 3. Coordinator broadcasts training repo path in `TrainConfig`,
-4. Node responds with `RepoCommit` containing the commit hash of the current training code branch signed by the node Iroh key.
-5. Coordinator receives all node commit hashes. Training ends with `TrainingCancel` broadcast unless all commits match, signaled by `TrainingReady` broadcast.
-6. Node responds to `TrainingReady` with or shuts down if `TrainingCancel`
+4. Node responds with `RepoCommit` containing training information signed by the node's Iroh key.
+5. Coordinator receives all node commit hashes. Training ends with `TrainingCancel` broadcast unless peer information matches, signaled by `TrainingReady` broadcast.
+6. Node responds to `TrainingReady` with TrainProgress or shuts down if `TrainingCancel`
 7. Coordinator broadcasts `ShardAssignment` to all nodes.
-8. Nodes download training scripts, data, and execute at their own pace.
+8. Nodes downloads data, and execute at their own pace.
 9. Nodes stream `TrainProgress` updates back to coordinator
-10. If a node fails, work is held by coordinator as `AssignNext`, awaiting next free node to `AskForMoreWork`
-11. On receiving NoMoreWork or timeout, nodes shut down.
+10. If a node fails, its work is queued for redistribution by the coordinator as `AssignNext`.
+11. When any node completes its task it will `AskForMoreWork`.
+12. On receiving NoMoreWork or timeout, nodes shut down.
 
 All traffic is encrypted end-to-end via QUIC.<br>
 NAT hole-punching is handled automatically by iroh, with relay fallback.<br>
 Messages are length-prefixed JSON over QUIC bidirectional streams.<br>
+Shard count is fixed at initialization. It cannot be changed during training yet.
 
 #### Verification Handshake
 

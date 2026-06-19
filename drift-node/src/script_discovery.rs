@@ -61,6 +61,22 @@ pub fn repo_suffix_from_url(url: &str) -> String {
     url[last_slash..].to_string()
 }
 
+pub fn find_preprovisioned_repo(url: &str, base: &Path) -> Result<PathBuf> {
+    let suffix = repo_suffix_from_url(url);
+    let covn_path = base.join("covn").join(&suffix);
+    if covn_path.exists() {
+        return Ok(covn_path);
+    }
+    let drift_path = base.join("drift").join(&suffix);
+    if drift_path.exists() {
+        return Ok(drift_path);
+    }
+    anyhow::bail!(
+        "repo not found in ~/.local/share/covn/ or ~/.local/share/drift/: {}",
+        suffix
+    );
+}
+
 pub fn resolve_entrypoint_to_spawn_cmd(_repo_path: &Path, entrypoint: &str) -> Result<String> {
     if entrypoint.is_empty() {
         anyhow::bail!("empty entrypoint");
@@ -79,6 +95,9 @@ pub fn resolve_entrypoint_to_spawn_cmd(_repo_path: &Path, entrypoint: &str) -> R
 }
 
 pub async fn clone_repo_to_drift_cache(url: &str, base: &Path) -> Result<PathBuf> {
+    if let Ok(existing) = find_preprovisioned_repo(url, base) {
+        return Ok(existing);
+    }
     let suffix = repo_suffix_from_url(url);
     let dest = base.join("drift").join(suffix);
     let output = tokio::process::Command::new("git")

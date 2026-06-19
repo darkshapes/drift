@@ -154,6 +154,58 @@ On MacOS, building `drift` may require permission from `integration`, `stress`, 
 - checkpoint specific saving
 - container/vm options (smolvm)
 
+```
+Drift Training Entry Points & Adjustment Locations
+Based on the darkshapes/drift codebase, here's where training begins and where adjustments should be made:
+Entry Point: covn train --peers <ids> --repo <url>
+The flow starts in nocturne-cli and delegates to drift:
+1. nocturne-cli clones repo to ~/.local/share/covn/<repo-suffix>
+
+3. Node Spawns Python Training (drift-node/src/training.rs)
+spawn_training_with_progress() (file:///Users/f784e/Documents/darkshapes/drift/drift-node/src/training.rs:72):
+- Reads cached LocalShardState from disk
+- Extracts script_entrypoint from TrainConfig (defaults to /tmp/train.py)
+- Spawns Python subprocess with args:
+python <script> --model-path <path> --dataset-path <path>
+    --batch-size <n> --learning-rate <f64> --epochs <n>
+    --shard-index <n> --shard-start <n> --shard-end <n>
+- Monitors stdout for JSON progress logs
+- Writes checkpoints to ~/.drift/shard-<node_id> every 100 steps
+Where Adjustments Should Be Made
+Location	File
+CLI repo handling	drift-cli/src/main.rs:91
+Coordinator config	drift-cli/src/coord.rs:64
+Repo cloning	drift-node/src/network.rs:65
+Script discovery	drift-node/src/training.rs:92
+Python env setup	drift-node/src/training.rs:141
+Progress parsing	drift-node/src/training.rs:119
+Checkpoint save	drift-node/src/training.rs:163
+Key Fields in TrainConfig (drift-proto/src/lib.rs)
+pub struct TrainConfig {
+    pub model_path: String,
+    pub dataset_path: String,
+    pub batch_size: u32,
+    pub learning_rate: f64,
+    pub epochs: u32,
+
+    // Distributed repo training
+    pub train_repo_url: Option<String>,      // ← Git URL to clone
+    pub script_entrypoint: Option<String>,   // ← e.g., "train.py" or "covn:train"
+    pub dataset_repo_url: Option<String>,    // ← Optional dataset source
+    pub model_artifact_ref: Option<String>,  // ← Local base model path
+    pub git_commit: Option<String>,          // ← Verified commit hash
+    pub enable_auth: bool,
+    pub auth_threshold: usize,
+}
+Recommended Implementation Order
+1. Implement script discovery: search ~/.local/share/covn/<repo> for pyproject.toml
+2. Extract entrypoint from [project.scripts] section (e.g., covn = nocturne.__main__:main)
+3. Spawn Python with proper venv activation and script args
+	Python training script be invoked from [project.scripts] in pyproject.toml of the repo, but ONLY  ONLY TrainingReady is received from the orchestrator
+4. Parse progress from stdout (JSON or DRIFT_PROGRESS format)
+5. Write checkpoints to local cache for resume support
+```
+
 ## Components Locations
 
 ```

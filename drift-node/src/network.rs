@@ -164,11 +164,14 @@ let repo_commit = RepoCommit {
                                 match crate::script_discovery::discover_script_entrypoint(&cloned_path) {
                                     Ok(entrypoint) => {
                                         info!(entrypoint = %entrypoint, "discovered script entrypoint");
+                                        let repo_path_str = cloned_path.display().to_string();
                                         if let Some(ref mut config) = cached_config {
                                             config.script_entrypoint = Some(entrypoint);
+                                            config.repo_path = Some(repo_path_str);
                                         } else {
                                             let mut new_config = drift_proto::TrainConfig::default();
                                             new_config.script_entrypoint = Some(entrypoint);
+                                            new_config.repo_path = Some(repo_path_str);
                                             cached_config = Some(new_config);
                                         }
                                     }
@@ -324,6 +327,7 @@ pub async fn handle_completion(
                     gpu_cc,
                     progress_tx,
                     Some(state),
+                    config.repo_path.as_ref().map(|p| p.as_str()),
                 ).await {
                     Ok((_child, final_step)) => {
                         println!("training completed at step {}", final_step);

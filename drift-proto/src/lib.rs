@@ -275,6 +275,10 @@ pub struct TrainConfig {
     #[serde(default)]
     pub script_entrypoint: Option<String>,
 
+    /// Discovered local path to pre-provisioned repo (for venv activation).
+    #[serde(default)]
+    pub repo_path: Option<String>,
+
     /// HuggingFace repo ID or Git URL for the dataset.
     /// Node should download/clone this before starting training.
     #[serde(default)]

@@ -113,6 +113,7 @@ async fn join(name: Option<String>) -> Result<()> {
                         gpu_cc,
                         progress_tx,
                         Some(cached.clone()),
+                        config.repo_path.as_ref().map(|p| p.as_str()),
                     ).await {
                         Ok((_child, final_step)) => {
                             println!("training completed at step {}", final_step);

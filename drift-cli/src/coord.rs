@@ -75,6 +75,7 @@ pub async fn train(
         auth_threshold: 3,
         git_commit: None,
         gpu_compute_capability: None,
+        repo_path: None,
     };
 
     // Connect to each peer and collect node info
