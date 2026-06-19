@@ -157,9 +157,36 @@ A. Join  drift-cli -> drift-node --------- >= drift-coord
              |       ╲|╱ |          NodeInfo       |
              |     drift-auth       TrainProgress  |
              |     E. RepoCommit    AskForMoreWork |
-             |           			Heartbeat      |
-             | 		                               |
+             |           			      Heartbeat      |
+             | 		                                 |
               `-----------------------------------'
+```
+
+### Verification Handshake
+
+```
+COORDINATOR TASK                          NODE TASK
+────────────────────────────────────────────────────────
+cli launch ──────────────────────→
+send Ping
+                       ←────────────────── receive Ping
+                       send NodeInfo
+receive NodeInfo ──────────────────────→
+send TrainConfig
+                       ←────────────────── receive TrainConfig
+                       send RepoCommit
+receive RepoCommit────────────────────→
+send TrainingReady, ShardAssignment
+                       ←────────────────── receive TrainingReady,
+                                                  ShardAssignment
+                       send TrainProgress
+(or)
+send TrainingCancel
+───────────────────┐
+                   │
+                   │
+                   ↓
+                  end
 ```
 
 ### Protocol Flow (ALPN: `drift/0`)

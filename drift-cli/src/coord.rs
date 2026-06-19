@@ -165,62 +165,92 @@ pub async fn train(
         info!(node = %node_infos[i].node_id, "sent config, shard");
     }
 
-    // Collect RepoCommit from each node (30s timeout per node)
+    // Collect RepoCommit from each node
+    // Phase 1: Collect all commits first (don't verify yet)
     println!("==> Stage: Consistency Verification");
-    let mut repo_commits: Vec<(String, drift_proto::RepoCommit)> = Vec::new();
-
+    
+    // Phase 2: Handle partial failures - track successful/failed separately
+    let mut successful_commits: Vec<(String, drift_proto::RepoCommit)> = Vec::new();
+    let mut failed_nodes_list: Vec<(String, String)> = Vec::new();
+    
     for i in 0..connections.len() {
         let node_id = node_infos[i].node_id.clone();
         println!(
-            "  [{}/{}] Verifying commit from {}...",
+            "  [{}/{}] Receiving commit from {}...",
             i + 1,
             connections.len(),
             &node_id[..12.min(node_id.len())]
         );
+        
+        // Read with timeout (30s per node)
         let commit_start = Instant::now();
-        let elem = &mut connections[i];
-        let recv = &mut elem.1;
-
+        let mut received = false;
+        
         loop {
             if commit_start.elapsed() > Duration::from_secs(30) {
-                broadcast_training_cancel(
-                    &mut connections,
-                    &format!("Node {} did not send RepoCommit after 30s", node_id),
-                    &repo,
-                ).await?;
-                anyhow::bail!("Node {} timeout", node_id);
+                failed_nodes_list.push((node_id.clone(), "timeout".to_string()));
+                break;
             }
-
+            
+            let elem = &mut connections[i];
+            let recv = &mut elem.1;
+            
             match read_message(recv).await {
                 Ok(DriftMessage::RepoCommit(commit)) => {
-                    if let Err(e) = verify_repo_commit(&commit, &node_id) {
-                        broadcast_training_cancel(
-                            &mut connections,
-                            &format!("Signature verification failed for node {}: {}", node_id, e),
-                            &repo,
-                        ).await?;
-                        anyhow::bail!("Signature verification failed for node {}", node_id);
-                    }
-                    repo_commits.push((node_id.clone(), commit));
+                    successful_commits.push((node_id.clone(), commit));
+                    received = true;
                     break;
                 }
                 Ok(other) => {
                     warn!(%other, "unexpected message from node {}", node_id);
                 }
                 Err(e) => {
-                    broadcast_training_cancel(
-                        &mut connections,
-                        &format!("Node {} connection error: {}", node_id, e),
-                        &repo,
-                    ).await?;
-                    anyhow::bail!("Node {} error: {}", node_id, e);
+                    failed_nodes_list.push((node_id.clone(), e.to_string()));
+                    break;
                 }
             }
             tokio::time::sleep(Duration::from_millis(100)).await;
         }
     }
-
-    // Check all commits match
+    
+    // Handle partial failures
+    for (node_id, error) in &failed_nodes_list {
+        warn!("Failed to receive commit from {}: {}", node_id, error);
+    }
+    
+    // Three-way branching: all success, all failed, or partial
+    if successful_commits.is_empty() {
+        broadcast_training_cancel(
+            &mut connections,
+            "No peers sent RepoCommit",
+            &repo,
+        ).await?;
+        anyhow::bail!("No peers responded");
+    } else if failed_nodes_list.is_empty() && successful_commits.len() == connections.len() {
+        info!("All {} peers responded successfully", successful_commits.len());
+    } else {
+        warn!(
+            "Partial failure: {} succeeded, {} failed",
+            successful_commits.len(),
+            failed_nodes_list.len()
+        );
+        // Decide: proceed with subset or cancel? For now, proceed with available commits
+    }
+    
+    // Use only successful commits for verification
+    let repo_commits = successful_commits;
+    
+    if repo_commits.is_empty() {
+        broadcast_training_cancel(
+            &mut connections,
+            "No peers sent RepoCommit",
+            &repo,
+        ).await?;
+        anyhow::bail!("No peers responded");
+    }
+    
+    // Step 3: Batch Verification - verify all commits together
+    // First check commit consistency across all peers
     let commits: Vec<&String> = repo_commits.iter().map(|(_, c)| &c.commit).collect();
     let unique_commits: std::collections::HashSet<_> = commits.iter().collect();
 
@@ -231,6 +261,30 @@ pub async fn train(
             &repo,
         ).await?;
         anyhow::bail!("Commit mismatch: {} different commits", unique_commits.len());
+    }
+
+    // Verify signatures for all collected commits (batch verification)
+    for (node_id, commit) in &repo_commits {
+        if let Err(e) = verify_repo_commit(commit, &node_id) {
+            let error_msg = e.to_string();
+            let is_connection_error = error_msg.contains("connection") || error_msg.contains("lost");
+            
+            if is_connection_error {
+                broadcast_training_cancel(
+                    &mut connections,
+                    &format!("Signature verification failed for node {}: {}", node_id, e),
+                    &repo,
+                ).await?;
+                anyhow::bail!("Signature verification failed for node {}: {}", node_id, e);
+            } else {
+                broadcast_training_cancel(
+                    &mut connections,
+                    &format!("Signature verification failed for node {}: commit {} - {}", node_id, commit.commit, e),
+                    &repo,
+                ).await?;
+                anyhow::bail!("Signature verification failed for node {}: commit {}", node_id, commit.commit);
+            }
+        }
     }
 
     let agreed_commit = commits[0].clone();
