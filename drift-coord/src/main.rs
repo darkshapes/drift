@@ -131,6 +131,7 @@ async fn train(
         batch_size,
         learning_rate,
         epochs,
+        repo_path: None,
         train_repo_url: None,
         script_entrypoint: None,
         dataset_repo_url: None,
