@@ -162,7 +162,7 @@ A. Join  drift-cli -> drift-node --------- >= drift-coord
               `-----------------------------------'
 ```
 
-### Verification Handshake
+### Communication Protocol
 
 ```
 COORDINATOR TASK                          NODE TASK
@@ -174,8 +174,8 @@ send Ping
 receive NodeInfo ──────────────────────→
 send TrainConfig
                        ←────────────────── receive TrainConfig
-                       send RepoCommit
-receive RepoCommit────────────────────→
+                       send RepoCommit                            ┓ verification
+receive RepoCommit────────────────────→                           ┛ handshake
 send TrainingReady, ShardAssignment
                        ←────────────────── receive TrainingReady,
                                                   ShardAssignment
@@ -189,21 +189,30 @@ send TrainingCancel
                   end
 ```
 
-### Protocol Flow (ALPN: `drift/0`)
+#### Protocol Flow (ALPN: `drift/0`)
 
-1. Coordinator initiates QUIC connection to node, sends `Ping` and broadcasts training repo path in `TrainConfig`,
-2. Node responds with `RepoCommit` containing the commit hash of the current branch signed by the node Iroh key.
-3. Coordinator receives all node commit hashes. Training ends with `TrainingCancel` broadcast unless all commits match, signaled by `TrainingReady` broadcast.
-4. Node responds to `TrainingReady` with `NodeInfo` containing GPU name, VRAM, compute capability (or shuts down if `TrainingCancel`)
-5. Coordinator broadcasts `ShardAssignment` to all nodes.
-6. Nodes download training scripts, data, and execute at their own pace.
-7. Nodes stream `TrainProgress` updates back to coordinator
-8. If a node fails, work is held by coordinator as `AssignNext`, awaiting next free node to `AskForMoreWork`
-9. On receiving NoMoreWork or timeout, nodes shut down.
+1. Coordinator initiates QUIC connection to node, sends `Ping`
+2. Node gets Ping, sends `NodeInfo` containing GPU name, VRAM, compute capability
+3. Coordinator broadcasts training repo path in `TrainConfig`,
+4. Node responds with `RepoCommit` containing the commit hash of the current training code branch signed by the node Iroh key.
+5. Coordinator receives all node commit hashes. Training ends with `TrainingCancel` broadcast unless all commits match, signaled by `TrainingReady` broadcast.
+6. Node responds to `TrainingReady` with or shuts down if `TrainingCancel`
+7. Coordinator broadcasts `ShardAssignment` to all nodes.
+8. Nodes download training scripts, data, and execute at their own pace.
+9. Nodes stream `TrainProgress` updates back to coordinator
+10. If a node fails, work is held by coordinator as `AssignNext`, awaiting next free node to `AskForMoreWork`
+11. On receiving NoMoreWork or timeout, nodes shut down.
 
 All traffic is encrypted end-to-end via QUIC.<br>
 NAT hole-punching is handled automatically by iroh, with relay fallback.<br>
 Messages are length-prefixed JSON over QUIC bidirectional streams.<br>
+
+#### Verification Handshake
+
+During verification on the coordinator:
+
+1. Per-node signature verification: Each node's node_id, commit, and repo_url are compared together against that node's signature
+2. Cross-node consistency check: All nodes' commit hashes are compared against each other to ensure they match
 
 ### Project Structure
 
@@ -246,13 +255,32 @@ drift/
     └── train.yaml          # Example training configuration
 ```
 
-### Purpose
+### References
 
-Distributed training coordination for consumer hardware (GPUs and CPUs) that:
-
-- Avoids gradient sharing and allgather operations entirely
-- Trains nodes independently in a ring-free, GLOO-free, NVLink-free architecture
-- Supports Apple Silicon Metal, NVIDIA CUDA, AMD ROCm, and Vulkan backends
-- Communicates over QUIC-encrypted iroh tunnels with automatic NAT hole-punching
-
-### Libraries
+https://arxiv.org/abs/2007.14390 Flower: A Friendly Federated Learning Research Framework<br>
+https://arxiv.org/abs/2103.03239 Moshpit SGD: Communication-Efficient Decentralized Training on Heterogeneous Unreliable Devices<br>
+https://arxiv.org/abs/2103.16257 Model-Contrastive Federated Learning<br>
+https://arxiv.org/abs/2106.10207 Distributed Deep Learning in Open Collaborations<br>
+https://arxiv.org/abs/2311.08105 DiLoCo: Distributed Low-Communication Training of Language Models<br>
+https://arxiv.org/abs/2402.01862 Parametric Feature Transfer: One-shot Federated Learning<br>
+https://arxiv.org/abs/2402.19481 DistriFusion: Distributed Parallel Inference for High-Resolution<br>
+https://arxiv.org/abs/2406.01566 Helix: Serving Large Language Models over Heterogeneous GPUs<br>
+https://arxiv.org/abs/2407.07852 OpenDiLoCo: An Open-Source Framework for Globally Distributed Low-Communication Training<br>
+https://arxiv.org/abs/2501.05450 Decentralized Diffusion Models<br>
+https://arxiv.org/abs/2504.00952 Personalized Federated Training of Diffusion Models with Privacy<br>
+https://arxiv.org/abs/2504.17096 Sailor: Automating Distributed Training over Dynamic, Heterogeneous<br>
+https://arxiv.org/abs/2505.15306 Multiple Weaks Win Single Strong: Large Language Models Ensemble<br>
+https://arxiv.org/abs/2506.14202 DiffusionBlocks: Block-wise Neural Network Training via Diffusion<br>
+https://arxiv.org/abs/2507.00507 Towards Resource-Efficient Serverless LLM Inference with SLINFER<br>
+https://arxiv.org/abs/2509.26182 Parallax: Efficient LLM Inference Service over Decentralized Environment<br>
+https://arxiv.org/abs/2601.03184 Decentralized Autoregressive Generation<br>
+https://arxiv.org/abs/2601.06857 MoE-DisCo:Low Economy Cost Training Mixture-of-Experts Models<br>
+https://arxiv.org/abs/2601.16863 Mixture-of-Models: Unifying Heterogeneous Agents via N-Way Self-Eval<br>
+https://arxiv.org/abs/2602.02192 ECHO-2: A Large-Scale Distributed Rollout Framework<br>
+https://arxiv.org/abs/2602.02685 Expert-Data Alignment Governs Generation Quality in Decentralized<br>
+https://arxiv.org/abs/2602.08387 Modalities, a PyTorch-native Framework For Large-scale LLM Training<br>
+https://arxiv.org/abs/2603.06741 Heterogeneous Decentralized Diffusion Models<br>
+https://arxiv.org/abs/2603.08163 Covenant-72B: Pre-Training a 72B LLM with Trustless Peers<br>
+https://arxiv.org/abs/2604.14561 CoCoDiff: Optimizing Collective Communications for Distributed<br>
+https://arxiv.org/abs/2604.21428 Decoupled DiLoCo for Resilient Distributed Pre-training<br>
+https://arxiv.org/abs/2605.06663 EMO: Pretraining Mixture of Experts for Emergent Modularity<br>

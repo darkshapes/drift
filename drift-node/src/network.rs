@@ -5,7 +5,7 @@ use drift_proto::{read_message, write_message, DriftMessage, DRIFT_ALPN, LocalSh
 use iroh::{Endpoint, EndpointAddr};
 use iroh::endpoint::RelayMode;
 use sha2::{Sha256, Digest};
-use tracing::{info, warn};
+use tracing::{error, info, warn};
 
 pub async fn create_endpoint() -> Result<(Endpoint, EndpointAddr)> {
     let endpoint = Endpoint::empty_builder(RelayMode::Disabled)
@@ -217,6 +217,15 @@ let repo_commit = RepoCommit {
                         write_message(&mut send, &cancel).await?;
                         break;
                     }
+                }
+                DriftMessage::TrainingCancel(cancel) => {
+                    error!(
+                        reason = %cancel.reason,
+                        time = %cancel.time,
+                        repo_url = %cancel.repo_url,
+                        "TrainingCancel received from coordinator - shutting down"
+                    );
+                    break;
                 }
                 DriftMessage::TrainComplete => {
                     info!("training complete signal received");

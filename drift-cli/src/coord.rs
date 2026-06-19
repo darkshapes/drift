@@ -237,6 +237,11 @@ pub async fn train(
         // Decide: proceed with subset or cancel? For now, proceed with available commits
     }
     
+    // Log all decrypted repocommit commit hashes from nodes
+    for (node_id, commit) in &successful_commits {
+        info!(node = %node_id, commit = %commit.commit, "decrypted repocommit hash");
+    }
+    
     // Use only successful commits for verification
     let repo_commits = successful_commits;
     
@@ -255,6 +260,24 @@ pub async fn train(
     let unique_commits: std::collections::HashSet<_> = commits.iter().collect();
 
     if unique_commits.len() != 1 {
+        use std::collections::HashMap;
+        let mut commit_groups: HashMap<&str, Vec<&str>> = HashMap::new();
+        for (node_id, commit) in &repo_commits {
+            let commit_key = &commit.commit[..8.min(commit.commit.len())];
+            commit_groups
+                .entry(commit_key)
+                .or_insert_with(Vec::new)
+                .push(&node_id[..12.min(node_id.len())]);
+        }
+        let mut lines: Vec<String> = vec![
+            format!("ERROR: Commit hash mismatch detected ({} different commits)", unique_commits.len())
+        ];
+        for (commit_prefix, nodes) in &commit_groups {
+            let node_list = nodes.join(", ");
+            lines.push(format!("  {}... -> [{}]", commit_prefix, node_list));
+        }
+        let breakdown = lines.join("\n");
+        error!("\n{}\n", breakdown);
         broadcast_training_cancel(
             &mut connections,
             &format!("Commit hash mismatch detected: {} different commits", unique_commits.len()),
@@ -267,23 +290,42 @@ pub async fn train(
     for (node_id, commit) in &repo_commits {
         if let Err(e) = verify_repo_commit(commit, &node_id) {
             let error_msg = e.to_string();
-            let is_connection_error = error_msg.contains("connection") || error_msg.contains("lost");
+            let node_short = &node_id[..12.min(node_id.len())];
+            let commit_short = &commit.commit[..8.min(commit.commit.len())];
             
-            if is_connection_error {
-                broadcast_training_cancel(
-                    &mut connections,
-                    &format!("Signature verification failed for node {}: {}", node_id, e),
-                    &repo,
-                ).await?;
-                anyhow::bail!("Signature verification failed for node {}: {}", node_id, e);
+            let (error_type, detail) = if error_msg.contains("connection") || error_msg.contains("lost") {
+                ("CONNECTION_LOST", format!("connection to node {} lost during verification", node_short))
+            } else if error_msg.contains("Invalid node ID") || error_msg.contains("invalid key") {
+                ("INVALID_KEY_FORMAT", format!("invalid key format for node {} (cannot parse public key)", node_short))
             } else {
-                broadcast_training_cancel(
-                    &mut connections,
-                    &format!("Signature verification failed for node {}: commit {} - {}", node_id, commit.commit, e),
-                    &repo,
-                ).await?;
-                anyhow::bail!("Signature verification failed for node {}: commit {}", node_id, commit.commit);
-            }
+                ("SIG_VERIFY_FAILED", format!(
+                    "signature mismatch for node {} (commit {}...)",
+                    node_short,
+                    commit_short
+                ))
+            };
+            
+            error!(
+                node_id = %node_short,
+                commit = %commit_short,
+                error_type,
+                "Signature verification failed: {} - {}",
+                error_type,
+                detail
+            );
+            
+            let cancel_msg = if error_type == "CONNECTION_LOST" {
+                format!("Signature verification failed for node {}: {}", node_id, e)
+            } else {
+                format!("Signature verification failed for node {}: commit {} - {}", node_id, commit.commit, e)
+            };
+            
+            broadcast_training_cancel(
+                &mut connections,
+                &cancel_msg,
+                &repo,
+            ).await?;
+            anyhow::bail!("Signature verification failed for node {}: {}", node_id, e);
         }
     }
 
@@ -296,23 +338,30 @@ pub async fn train(
 
     let total_vram: u64 = node_infos.iter().map(|n| n.gpu_vram_mb).sum();
 
-    println!();
-    println!(
-        "All peers connected in {:.1}s",
-        started.elapsed().as_secs_f64()
+    info!("All peers connected in {:.1}s", started.elapsed().as_secs_f64());
+    info!("Commit verified: {}", agreed_commit);
+    info!("Broadcasting TrainingReady...");
+    info!("Starting training:");
+    info!(
+        nodes = node_infos.len(),
+        total_vram_mb = total_vram,
+        "  Nodes:         {}, Total VRAM: {} MB",
+        node_infos.len(),
+        total_vram
     );
-    println!();
-    println!("Commit verified: {}", agreed_commit);
-    println!("Broadcasting TrainingReady...");
-    println!();
-    println!("Starting training:");
-    println!("  Nodes:         {}", node_infos.len());
-    println!("  Total VRAM:    {} MB", total_vram);
-    println!("  Epochs:        {}", epochs);
-    println!("  Batch size:    {} (per node)", batch_size);
-    println!("  Learning rate: {}", learning_rate);
-    println!(
-        "  Dataset:       {} bytes ({} shards)",
+    info!(
+        epochs,
+        batch_size,
+        learning_rate,
+        "  Epochs: {}, Batch size: {}, Learning rate: {}",
+        epochs,
+        batch_size,
+        learning_rate
+    );
+    info!(
+        dataset_size = dataset_size,
+        shards = assignments.len(),
+        "  Dataset: {} bytes ({} shards)",
         dataset_size,
         assignments.len()
     );
