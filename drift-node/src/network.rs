@@ -163,15 +163,34 @@ let repo_commit = RepoCommit {
                             Ok(cloned_path) => {
                                 match crate::script_discovery::discover_script_entrypoint(&cloned_path) {
                                     Ok(entrypoint) => {
-                                        info!(entrypoint = %entrypoint, "discovered script entrypoint");
                                         let repo_path_str = cloned_path.display().to_string();
+                                        let spawn_cmd = match crate::script_discovery::resolve_entrypoint_to_spawn_cmd(&cloned_path, &entrypoint) {
+                                            Ok(cmd) => {
+                                                if let Some(activate) = crate::script_discovery::detect_venv_activation(&cloned_path) {
+                                                    info!(venv = %activate, spawn_cmd = %cmd, "discovered script entrypoint with venv");
+                                                } else {
+                                                    info!(spawn_cmd = %cmd, "discovered script entrypoint without venv");
+                                                }
+                                                Some(cmd)
+                                            }
+                                            Err(e) => {
+                                                warn!(error = %e, "failed to resolve spawn command");
+                                                None
+                                            }
+                                        };
                                         if let Some(ref mut config) = cached_config {
                                             config.script_entrypoint = Some(entrypoint);
                                             config.repo_path = Some(repo_path_str);
+                                            if let Some(ref cmd) = spawn_cmd {
+                                                config.training_spawn_cmd = Some(cmd.clone());
+                                            }
                                         } else {
                                             let mut new_config = drift_proto::TrainConfig::default();
                                             new_config.script_entrypoint = Some(entrypoint);
                                             new_config.repo_path = Some(repo_path_str);
+                                            if let Some(ref cmd) = spawn_cmd {
+                                                new_config.training_spawn_cmd = Some(cmd.clone());
+                                            }
                                             cached_config = Some(new_config);
                                         }
                                     }

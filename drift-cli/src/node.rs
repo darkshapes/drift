@@ -335,18 +335,18 @@ async fn run_training(
     coord_recv: &mut iroh::endpoint::RecvStream,
     shard: Option<&drift_proto::ShardAssignment>,
 ) -> Result<()> {
-    if config.model_path.ends_with(".py") {
-        if !std::path::Path::new(&config.model_path).exists() {
-            anyhow::bail!(
-                "Python training script not found: {}. Check the --model-path argument.",
-                config.model_path
-            );
+    match (config.train_repo_url.as_ref(), config.script_entrypoint.as_ref()) {
+        (Some(_), None) => {
+            anyhow::bail!("train_repo_url is set but script_entrypoint is missing. Ensure _ati_plug is defined in pyproject.toml.");
         }
-        info!(script = %config.model_path, "launching real Python training");
-        run_real_training(config, coord_send, coord_recv, shard).await
-    } else {
-        info!("running simulated training with gradient sync");
-        simulate_training(config, coord_send).await
+        (None, None) => {
+            info!("train_repo_url and script_entrypoint are both None - running simulated training");
+            simulate_training(config, coord_send).await
+        }
+        (_, Some(entrypoint)) => {
+            info!(entrypoint = %entrypoint, "script_entrypoint found - preparing repo-based real training");
+            run_real_training(config, coord_send, coord_recv, shard).await
+        }
     }
 }
 

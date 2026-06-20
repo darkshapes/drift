@@ -279,6 +279,10 @@ pub struct TrainConfig {
     #[serde(default)]
     pub repo_path: Option<String>,
 
+    /// Resolved spawn command with venv activation (e.g., "source .venv/bin/activate && ...").
+    #[serde(default)]
+    pub training_spawn_cmd: Option<String>,
+
     /// HuggingFace repo ID or Git URL for the dataset.
     /// Node should download/clone this before starting training.
     #[serde(default)]

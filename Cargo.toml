@@ -24,6 +24,7 @@ hmac = "0.13"
 rand = "0.9"
 rand_core = "0.9"
 signature = "3"
+dirs = "1"
 thiserror = "1"
 digest = "0.10"
 

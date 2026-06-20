@@ -2,6 +2,7 @@ use drift_coord::{checkpoint, monitor, scheduler};
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
+use dirs;
 use drift_proto::{
     read_message, write_message, DriftMessage, NodeInfo, TrainConfig, DRIFT_ALPN,
 };
@@ -56,6 +57,10 @@ enum Commands {
         /// Checkpoint output directory
         #[arg(long, default_value = "checkpoints/")]
         checkpoint_dir: String,
+
+        /// URL of the repository containing the training script (triggers repo-based training)
+        #[arg(long)]
+        train_repo_url: Option<String>,
     },
 }
 
@@ -80,8 +85,9 @@ async fn main() -> Result<()> {
             learning_rate,
             epochs,
             dataset_size,
-            checkpoint_dir,
-        } => {
+        checkpoint_dir,
+        train_repo_url,
+    } => {
             train(
                 peers,
                 model_path,
@@ -91,6 +97,7 @@ async fn main() -> Result<()> {
                 epochs,
                 dataset_size,
                 checkpoint_dir,
+                train_repo_url,
             )
             .await
         }
@@ -106,9 +113,21 @@ async fn train(
     epochs: u32,
     dataset_size: u64,
     checkpoint_dir: String,
+    train_repo_url: Option<String>,
 ) -> Result<()> {
     if peer_ids.is_empty() {
         anyhow::bail!("no peers specified. Use --peers <node_id1>,<node_id2>");
+    }
+
+    if let Some(ref repo_url) = train_repo_url {
+        let base = match dirs::home_dir() {
+            Some(p) => p,
+            None => anyhow::bail!("could not determine home directory"),
+        };
+        let repo_path = base.join(".local/share/covn").join(repo_url);
+        if !repo_path.exists() {
+            anyhow::bail!("repo {} not found at {}. Run 'drift clone {}' first", repo_url, repo_path.display(), repo_url);
+        }
     }
 
     let started = Instant::now();
@@ -132,7 +151,7 @@ async fn train(
         learning_rate,
         epochs,
         repo_path: None,
-        train_repo_url: None,
+        train_repo_url,
         script_entrypoint: None,
         dataset_repo_url: None,
         dataset_urls: vec![],
@@ -141,6 +160,7 @@ async fn train(
         auth_threshold: 3,
         git_commit: None,
         gpu_compute_capability: None,
+        training_spawn_cmd: None,
     };
 
     let mut _checkpoint_mgr = checkpoint::CheckpointManager::new(&checkpoint_dir);

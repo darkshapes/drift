@@ -69,17 +69,19 @@ mod repo_commit_tests {
             auth_threshold: 3,
             enable_auth: false,
             model_artifact_ref: None,
-git_commit: None,
+        git_commit: None,
         dataset_urls: vec![],
         gpu_compute_capability: None,
+        repo_path: None,
+        training_spawn_cmd: None,
     };
 
-        assert!(config.git_commit.is_none());
+    assert!(config.git_commit.is_none());
 
-        config.git_commit = Some("abc123".to_string());
+    config.git_commit = Some("abc123".to_string());
 
-        assert_eq!(config.git_commit, Some("abc123".to_string()));
-    }
+    assert_eq!(config.git_commit, Some("abc123".to_string()));
+}
 
     #[test]
     fn test_train_config_git_commit_serialization() {
@@ -94,14 +96,16 @@ git_commit: None,
             dataset_repo_url: None,
             auth_threshold: 1,
             enable_auth: false,
-            model_artifact_ref: None,
-            git_commit: Some("f00bar".to_string()),
-            dataset_urls: vec![],
-            gpu_compute_capability: None,
-        };
+        model_artifact_ref: None,
+        git_commit: Some("f00bar".to_string()),
+        dataset_urls: vec![],
+        gpu_compute_capability: None,
+        repo_path: None,
+        training_spawn_cmd: None,
+    };
 
-        let json = serde_json::to_string(&config);
-        assert!(json.is_ok(), "serialization failed: {:?}", json.err());
+    let json = serde_json::to_string(&config);
+    assert!(json.is_ok(), "serialization failed: {:?}", json.err());
 
         let modified_json = json.unwrap().replace("\"f00bar\"", "\"abc123\"");
         let decoded: Result<TrainConfig, _> = serde_json::from_str(&modified_json);

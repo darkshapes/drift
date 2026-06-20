@@ -34,6 +34,8 @@ fn scenario_node_persists_and_restores_assignment() {
             dataset_urls: vec![],
             git_commit: None,
             gpu_compute_capability: None,
+            repo_path: None,
+            training_spawn_cmd: None,
         };
 
         let local_state = LocalShardState {

@@ -61,6 +61,15 @@ pub fn repo_suffix_from_url(url: &str) -> String {
     url[last_slash..].to_string()
 }
 
+pub fn detect_venv_activation(repo_path: &Path) -> Option<String> {
+    let activate_path = repo_path.join(".venv").join("bin").join("activate");
+    if activate_path.exists() {
+        Some(activate_path.display().to_string())
+    } else {
+        None
+    }
+}
+
 pub fn find_preprovisioned_repo(url: &str, base: &Path) -> Result<PathBuf> {
     let suffix = repo_suffix_from_url(url);
     let covn_path = base.join("covn").join(&suffix);
@@ -91,7 +100,12 @@ pub fn resolve_entrypoint_to_spawn_cmd(_repo_path: &Path, entrypoint: &str) -> R
         anyhow::bail!("invalid entrypoint format: {}", entrypoint);
     }
     let repo_str = _repo_path.to_str().unwrap_or("");
-    Ok(format!("PYTHONPATH={} python -c \"from {} import {}; {}()\"", repo_str, module, func, func))
+    let base_cmd = format!("PYTHONPATH={} python -c \"from {} import {}; {}()\"", repo_str, module, func, func);
+    if let Some(activate) = detect_venv_activation(_repo_path) {
+        Ok(format!("source {} && {}", activate, base_cmd))
+    } else {
+        Ok(base_cmd)
+    }
 }
 
 pub async fn clone_repo_to_drift_cache(url: &str, base: &Path) -> Result<PathBuf> {

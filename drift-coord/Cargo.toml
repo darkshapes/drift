@@ -16,6 +16,7 @@ anyhow.workspace = true
 clap.workspace = true
 
 time = { version = "0.3", default-features = false, features = ["serde"] }
+dirs.workspace = true
 thiserror = "1"
 rand = { workspace = true }
 ed25519-dalek = { path = "../vendor/ed25519-dalek-3.0.0-pre.1", features = ["rand_core"] }

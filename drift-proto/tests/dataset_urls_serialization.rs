@@ -17,6 +17,8 @@ fn test_train_config_empty_dataset_urls() {
         git_commit: None,
         dataset_urls: vec![],
         gpu_compute_capability: None,
+        repo_path: None,
+        training_spawn_cmd: None,
     };
     assert!(config.dataset_urls.is_empty());
 }
@@ -38,6 +40,8 @@ fn test_train_config_single_dataset_url() {
         git_commit: None,
         dataset_urls: vec!["https://huggingface.co/datasets/user/dataset".to_string()],
         gpu_compute_capability: None,
+        repo_path: None,
+        training_spawn_cmd: None,
     };
     assert_eq!(config.dataset_urls.len(), 1);
     assert_eq!(config.dataset_urls[0], "https://huggingface.co/datasets/user/dataset");
@@ -64,6 +68,8 @@ fn test_train_config_multiple_dataset_urls() {
             "/local/path/dataset3".to_string(),
         ],
         gpu_compute_capability: None,
+        repo_path: None,
+        training_spawn_cmd: None,
     };
     assert_eq!(config.dataset_urls.len(), 3);
     assert_eq!(config.dataset_urls[0], "https://huggingface.co/datasets/user/dataset1");
@@ -91,6 +97,8 @@ fn test_train_config_dataset_urls_serialization_roundtrip() {
             "https://huggingface.co/datasets/user/dataset2".to_string(),
         ],
         gpu_compute_capability: None,
+        repo_path: None,
+        training_spawn_cmd: None,
     };
 
     let json = serde_json::to_string(&config);
@@ -120,6 +128,8 @@ fn test_train_config_dataset_urls_json_format() {
         git_commit: None,
         dataset_urls: vec!["https://example.com/dataset".to_string()],
         gpu_compute_capability: None,
+        repo_path: None,
+        training_spawn_cmd: None,
     };
 
     let json = serde_json::to_string(&config).unwrap();
@@ -144,6 +154,8 @@ fn test_train_config_dataset_urls_with_other_fields() {
         git_commit: Some("abc123".to_string()),
         dataset_urls: vec!["https://data.example.com/set1".to_string(), "https://data.example.com/set2".to_string()],
         gpu_compute_capability: Some(8.9),
+        repo_path: None,
+        training_spawn_cmd: None,
     };
 
     assert_eq!(config.dataset_urls.len(), 2);
@@ -170,6 +182,8 @@ fn test_train_config_dataset_urls_empty_vs_none() {
         git_commit: None,
         dataset_urls: vec![],
         gpu_compute_capability: None,
+        repo_path: None,
+        training_spawn_cmd: None,
     };
 
     assert!(config.dataset_urls.is_empty());

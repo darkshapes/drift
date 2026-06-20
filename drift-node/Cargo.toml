@@ -31,3 +31,7 @@ path = "tests/training_with_progress.rs"
 [[test]]
 name = "script_discovery_failure"
 path = "tests/script_discovery_failure.rs"
+
+[[test]]
+name = "integration_training_trigger"
+path = "tests/integration_training_trigger.rs"

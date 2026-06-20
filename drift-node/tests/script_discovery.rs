@@ -103,3 +103,54 @@ fn test_repo_path_from_url_with_git_extension() {
     let suffix = script_discovery::repo_suffix_from_url(url);
     assert_eq!(suffix, "my-repo");
 }
+
+#[test]
+fn test_detect_venv_activation_with_venv() {
+    let repo_path = temp_test_path("has_venv");
+    fs::create_dir_all(&repo_path.join(".venv").join("bin")).unwrap();
+    fs::write(repo_path.join(".venv").join("bin").join("activate"), "").unwrap();
+
+    let result = script_discovery::detect_venv_activation(&repo_path);
+    assert!(result.is_some(), "should find venv");
+
+    cleanup_test_dir(&repo_path);
+}
+
+#[test]
+fn test_detect_venv_activation_without_venv() {
+    let repo_path = temp_test_path("no_venv");
+    fs::create_dir_all(&repo_path).unwrap();
+
+    let result = script_discovery::detect_venv_activation(&repo_path);
+    assert!(result.is_none(), "should not find venv");
+
+    cleanup_test_dir(&repo_path);
+}
+
+#[test]
+fn test_resolve_entrypoint_with_venv() {
+    let repo_path = temp_test_path("entry_with_venv");
+    fs::create_dir_all(&repo_path.join(".venv").join("bin")).unwrap();
+    fs::write(repo_path.join(".venv").join("bin").join("activate"), "").unwrap();
+
+    let cmd = script_discovery::resolve_entrypoint_to_spawn_cmd(&repo_path, "src.main:ati");
+    assert!(cmd.is_ok());
+    let cmd_str = cmd.unwrap();
+    assert!(cmd_str.contains("source"), "should include source");
+    assert!(cmd_str.contains(".venv/bin/activate"), "should reference venv activate");
+
+    cleanup_test_dir(&repo_path);
+}
+
+#[test]
+fn test_resolve_entrypoint_without_venv() {
+    let repo_path = temp_test_path("entry_no_venv");
+    fs::create_dir_all(&repo_path).unwrap();
+
+    let cmd = script_discovery::resolve_entrypoint_to_spawn_cmd(&repo_path, "src.main:ati");
+    assert!(cmd.is_ok());
+    let cmd_str = cmd.unwrap();
+    assert!(!cmd_str.contains("source"), "should not include source");
+
+    cleanup_test_dir(&repo_path);
+}

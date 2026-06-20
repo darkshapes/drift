@@ -72,6 +72,7 @@ pub async fn train(
         dataset_repo_url: None,
         model_artifact_ref: None,
         enable_auth: false,
+        training_spawn_cmd: None,
         auth_threshold: 3,
         git_commit: None,
         gpu_compute_capability: None,

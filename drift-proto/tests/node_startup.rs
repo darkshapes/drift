@@ -39,6 +39,8 @@ fn test_load_cached_state_returns_last_checkpoint() {
         git_commit: None,
         dataset_urls: vec![],
         gpu_compute_capability: None,
+        repo_path: None,
+        training_spawn_cmd: None,
     };
 
     let shard = ShardAssignment {
