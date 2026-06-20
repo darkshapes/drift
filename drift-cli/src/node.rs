@@ -657,8 +657,8 @@ fn find_ati_plug(value: &toml::Value) -> Option<String> {
                     if let Some(scripts_table) = scripts.as_table() {
                         for (key, value) in scripts_table {
                             if key.ends_with("ati_plug") {
-                                if let Some(s) = value.as_str() {
-                                    return Some(s.to_string());
+                                if let Some(_) = value.as_str() {
+                                    return Some(key.to_string());
                                 }
                             }
                         }
@@ -676,8 +676,8 @@ fn find_ati_plug(value: &toml::Value) -> Option<String> {
                         if let Some(scripts_table) = scripts.as_table() {
                             for (key, value) in scripts_table {
                                 if key.ends_with("ati_plug") {
-                                    if let Some(v) = value.as_str() {
-                                        return Some(v.to_string());
+                                    if let Some(_) = value.as_str() {
+                                        return Some(key.to_string());
                                     }
                                 }
                             }
@@ -719,25 +719,14 @@ pub fn detect_venv_activation(repo_path: &Path, base: &Path) -> Option<String> {
     None
 }
 
-pub fn resolve_entrypoint_to_spawn_cmd(_repo_path: &Path, entrypoint: &str, base: &Path) -> Result<String> {
-    if entrypoint.is_empty() {
-        anyhow::bail!("empty entrypoint");
+pub fn resolve_entrypoint_to_spawn_cmd(_repo_path: &Path, script_key: &str, base: &Path) -> Result<String> {
+    if script_key.is_empty() {
+        anyhow::bail!("empty script key");
     }
-    if !entrypoint.contains(':') {
-        anyhow::bail!("invalid entrypoint format: {}", entrypoint);
-    }
-    let parts: Vec<&str> = entrypoint.split(':').collect();
-    let module = parts.first().unwrap_or(&"");
-    let func = parts.get(1).unwrap_or(&"");
-    if module.is_empty() || func.is_empty() {
-        anyhow::bail!("invalid entrypoint format: {}", entrypoint);
-    }
-    let repo_str = _repo_path.to_str().unwrap_or("");
-    let base_cmd = format!("PYTHONPATH={} python -c \"from {} import {}; {}()\"", repo_str, module, func, func);
     if let Some(activate) = detect_venv_activation(_repo_path, base) {
-        Ok(format!("source {} && {}", activate, base_cmd))
+        Ok(format!("source {} && {}", activate, script_key))
     } else {
-        Ok(base_cmd)
+        Ok(script_key.to_string())
     }
 }
 

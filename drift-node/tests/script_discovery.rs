@@ -33,8 +33,8 @@ ati_plug = "src.main:ati"
 
     let result = script_discovery::discover_script_entrypoint(&repo_path);
     assert!(result.is_ok(), "should parse [project.scripts]");
-    let entrypoint = result.unwrap();
-    assert_eq!(entrypoint, "src.main:ati");
+    let script_key = result.unwrap();
+    assert_eq!(script_key, "ati_plug");
 
     cleanup_test_dir(&repo_path);
 }
@@ -57,8 +57,8 @@ ati_plug = "src.main:ati"
 
     let result = script_discovery::discover_script_entrypoint(&repo_path);
     assert!(result.is_ok(), "should parse [tool.uv.scripts]");
-    let entrypoint = result.unwrap();
-    assert_eq!(entrypoint, "src.main:ati");
+    let script_key = result.unwrap();
+    assert_eq!(script_key, "ati_plug");
 
     cleanup_test_dir(&repo_path);
 }
@@ -84,8 +84,8 @@ ati_plug = "src.main:uv_ati"
 
     let result = script_discovery::discover_script_entrypoint(&repo_path);
     assert!(result.is_ok());
-    let entrypoint = result.unwrap();
-    assert_eq!(entrypoint, "src.main:project_ati");
+    let script_key = result.unwrap();
+    assert_eq!(script_key, "ati_plug");
 
     cleanup_test_dir(&repo_path);
 }
@@ -136,11 +136,12 @@ fn test_resolve_entrypoint_with_venv() {
     fs::write(repo_path.join(".venv").join("bin").join("activate"), "").unwrap();
 
     let base = std::env::temp_dir().join("drift-test");
-    let cmd = script_discovery::resolve_entrypoint_to_spawn_cmd(&repo_path, "src.main:ati", &base);
+    let cmd = script_discovery::resolve_entrypoint_to_spawn_cmd(&repo_path, "ati_plug", &base);
     assert!(cmd.is_ok());
     let cmd_str = cmd.unwrap();
     assert!(cmd_str.contains("source"), "should include source");
     assert!(cmd_str.contains(".venv/bin/activate"), "should reference venv activate");
+    assert!(cmd_str.contains("ati_plug"), "should include script key");
 
     cleanup_test_dir(&repo_path);
 }
@@ -184,12 +185,13 @@ fn test_resolve_entrypoint_with_covn_venv() {
     fs::create_dir_all(&covn_repo.join(".venv").join("bin")).unwrap();
     fs::write(covn_repo.join(".venv").join("bin").join("activate"), "").unwrap();
 
-    let cmd = script_discovery::resolve_entrypoint_to_spawn_cmd(&covn_repo, "src.main:ati", &base);
+    let cmd = script_discovery::resolve_entrypoint_to_spawn_cmd(&covn_repo, "ati_plug", &base);
     assert!(cmd.is_ok());
     let cmd_str = cmd.unwrap();
     assert!(cmd_str.contains("source"), "should include source");
     assert!(cmd_str.contains("covn"), "should reference covn path");
     assert!(cmd_str.contains(".venv/bin/activate"), "should reference venv activate");
+    assert!(cmd_str.contains("ati_plug"), "should include script key");
 
     cleanup_test_dir(&base);
 }
@@ -217,10 +219,11 @@ fn test_resolve_entrypoint_without_venv() {
     let repo_path = temp_test_path("entry_no_venv");
     fs::create_dir_all(&repo_path).unwrap();
 
-    let cmd = script_discovery::resolve_entrypoint_to_spawn_cmd(&repo_path, "src.main:ati", &std::env::temp_dir());
+    let cmd = script_discovery::resolve_entrypoint_to_spawn_cmd(&repo_path, "ati_plug", &std::env::temp_dir());
     assert!(cmd.is_ok());
     let cmd_str = cmd.unwrap();
     assert!(!cmd_str.contains("source"), "should not include source");
+    assert_eq!(cmd_str, "ati_plug");
 
     cleanup_test_dir(&repo_path);
 }
