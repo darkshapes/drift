@@ -50,9 +50,9 @@ ati_plug = "src.train:run"
     )
     .unwrap();
 
-    let entrypoint = script_discovery::discover_script_entrypoint(&repo_path);
-    assert!(entrypoint.is_ok(), "should find _ati_plug");
-    assert_eq!(entrypoint.unwrap(), "src.train:run");
+    let script_key = script_discovery::discover_script_entrypoint(&repo_path);
+    assert!(script_key.is_ok(), "should find _ati_plug");
+    assert_eq!(script_key.unwrap(), "ati_plug");
 
     cleanup_test_dir(&repo_path);
 }
@@ -74,21 +74,21 @@ ati_plug = "src.train:run"
     )
     .unwrap();
 
-    let entrypoint = script_discovery::discover_script_entrypoint(&repo_path).unwrap();
-    assert_eq!(entrypoint, "src.train:run");
+    let script_key = script_discovery::discover_script_entrypoint(&repo_path).unwrap();
+    assert_eq!(script_key, "ati_plug");
 
     let base = std::env::temp_dir().join("drift-test");
     let has_venv = script_discovery::detect_venv_activation(&repo_path, &base);
     assert!(has_venv.is_some(), "should detect venv");
 
     let base = std::env::temp_dir().join("drift-test");
-    let spawn_cmd = script_discovery::resolve_entrypoint_to_spawn_cmd(&repo_path, &entrypoint, &base);
+    let spawn_cmd = script_discovery::resolve_entrypoint_to_spawn_cmd(&repo_path, &script_key, &base);
     assert!(spawn_cmd.is_ok(), "should resolve spawn cmd");
 
     let cmd_str = spawn_cmd.unwrap();
     assert!(cmd_str.contains("source"), "should include venv activation");
-    assert!(cmd_str.contains("src.train"), "should include module");
-    assert!(cmd_str.contains("run"), "should include func");
+    assert!(cmd_str.contains(".venv/bin/activate"), "should reference venv activate");
+    assert!(cmd_str.contains("ati_plug"), "should include script key");
 
     cleanup_test_dir(&repo_path);
 }
@@ -109,18 +109,19 @@ ati_plug = "src.train:run"
     )
     .unwrap();
 
-    let entrypoint = script_discovery::discover_script_entrypoint(&repo_path).unwrap();
+    let script_key = script_discovery::discover_script_entrypoint(&repo_path).unwrap();
 
     let base = std::env::temp_dir().join("drift-test");
     let has_venv = script_discovery::detect_venv_activation(&repo_path, &base);
     assert!(has_venv.is_none(), "should not detect venv");
 
     let base = std::env::temp_dir().join("drift-test");
-    let spawn_cmd = script_discovery::resolve_entrypoint_to_spawn_cmd(&repo_path, &entrypoint, &base);
+    let spawn_cmd = script_discovery::resolve_entrypoint_to_spawn_cmd(&repo_path, &script_key, &base);
     assert!(spawn_cmd.is_ok(), "should resolve spawn cmd");
 
     let cmd_str = spawn_cmd.unwrap();
     assert!(!cmd_str.contains("source"), "should not include venv activation");
+    assert_eq!(cmd_str, "ati_plug");
 
     cleanup_test_dir(&repo_path);
 }
@@ -176,13 +177,13 @@ fn integration_spawn_cmd_with_venv_includes_activation() {
     fs::write(repo_path.join(".venv").join("bin").join("activate"), "# activation\n").unwrap();
 
     let base = std::env::temp_dir().join("drift-test");
-    let spawn_cmd = script_discovery::resolve_entrypoint_to_spawn_cmd(&repo_path, "src.train:run", &base);
+    let spawn_cmd = script_discovery::resolve_entrypoint_to_spawn_cmd(&repo_path, "ati_plug", &base);
     assert!(spawn_cmd.is_ok());
 
     let cmd = spawn_cmd.unwrap();
     assert!(cmd.starts_with("source"), "should start with source");
     assert!(cmd.contains("&&"), "should chain commands");
-    assert!(cmd.contains("python"), "should run python");
+    assert!(cmd.contains("ati_plug"), "should include script key");
 
     cleanup_test_dir(&repo_path);
 }
@@ -193,11 +194,11 @@ fn integration_spawn_cmd_without_venv_simple_python() {
     fs::create_dir_all(&repo_path).unwrap();
 
     let base = std::env::temp_dir().join("drift-test");
-    let spawn_cmd = script_discovery::resolve_entrypoint_to_spawn_cmd(&repo_path, "src.train:run", &base);
+    let spawn_cmd = script_discovery::resolve_entrypoint_to_spawn_cmd(&repo_path, "ati_plug", &base);
     assert!(spawn_cmd.is_ok());
 
     let cmd = spawn_cmd.unwrap();
-    assert!(cmd.contains("python"), "should run python");
+    assert_eq!(cmd, "ati_plug");
     assert!(!cmd.starts_with("source"), "should not start with source");
 
     cleanup_test_dir(&repo_path);
