@@ -22,6 +22,7 @@ pub async fn train(
     dataset_size: u64,
     checkpoint_dir: String,
     resume: bool,
+    env_file: Option<String>,
 ) -> Result<()> {
     if peer_ids.is_empty() {
         anyhow::bail!("no peers specified. Use --peers <node_id1>,<node_id2>");
@@ -77,6 +78,7 @@ pub async fn train(
         git_commit: None,
         gpu_compute_capability: None,
         repo_path: None,
+        env_file,
     };
 
     // Connect to each peer and collect node info

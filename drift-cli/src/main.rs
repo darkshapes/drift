@@ -34,6 +34,7 @@ async fn main() -> Result<()> {
             dataset_size,
             checkpoint_dir,
             resume,
+            env_file,
         } => {
             coord::train(
                 repo,
@@ -48,6 +49,7 @@ async fn main() -> Result<()> {
                 dataset_size,
                 checkpoint_dir,
                 resume,
+                env_file,
             )
             .await
         }

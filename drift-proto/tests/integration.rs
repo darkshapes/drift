@@ -144,6 +144,7 @@ mod auth_integration_tests {
         dataset_urls: vec!["https://example.com/dataset.tar".to_string()],
         gpu_compute_capability: None,
         repo_path: None,
+        env_file: None,
         training_spawn_cmd: None,
     };
     assert!(config.enable_auth);
@@ -168,6 +169,7 @@ mod auth_integration_tests {
         dataset_urls: vec!["https://example.com/dataset.tar".to_string()],
         gpu_compute_capability: None,
         repo_path: None,
+        env_file: None,
         training_spawn_cmd: None,
     };
     let json = serde_json::to_string(&config).unwrap();
@@ -285,6 +287,7 @@ mod auth_integration_tests {
         dataset_urls: vec!["https://example.com/dataset.tar".to_string()],
         gpu_compute_capability: None,
         repo_path: None,
+        env_file: None,
         training_spawn_cmd: None,
     };
     assert!(!config.enable_auth);
@@ -308,6 +311,7 @@ fn test_auth_handshake_flow_auth_enabled_with_threshold() {
         dataset_urls: vec!["https://example.com/dataset.tar".to_string()],
         gpu_compute_capability: None,
         repo_path: None,
+        env_file: None,
         training_spawn_cmd: None,
     };
     assert!(config.enable_auth);

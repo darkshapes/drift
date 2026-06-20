@@ -310,6 +310,10 @@ pub struct TrainConfig {
     /// GPU compute capability (e.g., 8.9 for CUDA 8.9).
     #[serde(default)]
     pub gpu_compute_capability: Option<f64>,
+
+    /// Path to environment file for spawn command variables
+    #[serde(default)]
+    pub env_file: Option<String>,
 }
 
 /// Shard assignment for a specific node.
