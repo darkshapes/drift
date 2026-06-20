@@ -77,10 +77,12 @@ ati_plug = "src.train:run"
     let entrypoint = script_discovery::discover_script_entrypoint(&repo_path).unwrap();
     assert_eq!(entrypoint, "src.train:run");
 
-    let has_venv = script_discovery::detect_venv_activation(&repo_path);
+    let base = std::env::temp_dir().join("drift-test");
+    let has_venv = script_discovery::detect_venv_activation(&repo_path, &base);
     assert!(has_venv.is_some(), "should detect venv");
 
-    let spawn_cmd = script_discovery::resolve_entrypoint_to_spawn_cmd(&repo_path, &entrypoint);
+    let base = std::env::temp_dir().join("drift-test");
+    let spawn_cmd = script_discovery::resolve_entrypoint_to_spawn_cmd(&repo_path, &entrypoint, &base);
     assert!(spawn_cmd.is_ok(), "should resolve spawn cmd");
 
     let cmd_str = spawn_cmd.unwrap();
@@ -109,10 +111,12 @@ ati_plug = "src.train:run"
 
     let entrypoint = script_discovery::discover_script_entrypoint(&repo_path).unwrap();
 
-    let has_venv = script_discovery::detect_venv_activation(&repo_path);
+    let base = std::env::temp_dir().join("drift-test");
+    let has_venv = script_discovery::detect_venv_activation(&repo_path, &base);
     assert!(has_venv.is_none(), "should not detect venv");
 
-    let spawn_cmd = script_discovery::resolve_entrypoint_to_spawn_cmd(&repo_path, &entrypoint);
+    let base = std::env::temp_dir().join("drift-test");
+    let spawn_cmd = script_discovery::resolve_entrypoint_to_spawn_cmd(&repo_path, &entrypoint, &base);
     assert!(spawn_cmd.is_ok(), "should resolve spawn cmd");
 
     let cmd_str = spawn_cmd.unwrap();
@@ -126,7 +130,8 @@ fn integration_invalid_repo_trats_simulation_trigger() {
     let repo_path = temp_test_path("invalid_repo");
     fs::create_dir_all(&repo_path).unwrap();
 
-    let has_venv = script_discovery::detect_venv_activation(&repo_path);
+    let base = std::env::temp_dir().join("drift-test");
+    let has_venv = script_discovery::detect_venv_activation(&repo_path, &base);
     assert!(has_venv.is_none(), "no venv in invalid repo");
 
     let entrypoint = script_discovery::discover_script_entrypoint(&repo_path);
@@ -142,7 +147,8 @@ fn integration_venv_activation_path_exists() {
     let activate_path = repo_path.join(".venv").join("bin").join("activate");
     fs::write(&activate_path, "").unwrap();
 
-    let detected = script_discovery::detect_venv_activation(&repo_path);
+    let base = std::env::temp_dir().join("drift-test");
+    let detected = script_discovery::detect_venv_activation(&repo_path, &base);
     assert!(detected.is_some(), "should find activate script");
 
     let detected_str = detected.unwrap();
@@ -156,7 +162,8 @@ fn integration_venv_activation_path_not_exists() {
     let repo_path = temp_test_path("no_venv_activation_path");
     fs::create_dir_all(&repo_path).unwrap();
 
-    let detected = script_discovery::detect_venv_activation(&repo_path);
+    let base = std::env::temp_dir().join("drift-test");
+    let detected = script_discovery::detect_venv_activation(&repo_path, &base);
     assert!(detected.is_none(), "should not find activate script");
 
     cleanup_test_dir(&repo_path);
@@ -168,7 +175,8 @@ fn integration_spawn_cmd_with_venv_includes_activation() {
     fs::create_dir_all(&repo_path.join(".venv").join("bin")).unwrap();
     fs::write(repo_path.join(".venv").join("bin").join("activate"), "# activation\n").unwrap();
 
-    let spawn_cmd = script_discovery::resolve_entrypoint_to_spawn_cmd(&repo_path, "src.train:run");
+    let base = std::env::temp_dir().join("drift-test");
+    let spawn_cmd = script_discovery::resolve_entrypoint_to_spawn_cmd(&repo_path, "src.train:run", &base);
     assert!(spawn_cmd.is_ok());
 
     let cmd = spawn_cmd.unwrap();
@@ -184,7 +192,8 @@ fn integration_spawn_cmd_without_venv_simple_python() {
     let repo_path = temp_test_path("spawn_no_venv");
     fs::create_dir_all(&repo_path).unwrap();
 
-    let spawn_cmd = script_discovery::resolve_entrypoint_to_spawn_cmd(&repo_path, "src.train:run");
+    let base = std::env::temp_dir().join("drift-test");
+    let spawn_cmd = script_discovery::resolve_entrypoint_to_spawn_cmd(&repo_path, "src.train:run", &base);
     assert!(spawn_cmd.is_ok());
 
     let cmd = spawn_cmd.unwrap();

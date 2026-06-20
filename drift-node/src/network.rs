@@ -158,15 +158,15 @@ let repo_commit = RepoCommit {
                     };
                     if let Some(url) = repo_url {
                         let home = std::env::var("HOME").unwrap_or_else(|_| "~".to_string());
-                        let base = std::path::PathBuf::from(home).join(".local/share/drift");
+                        let base = std::path::PathBuf::from(home).join(".local/share");
                         match crate::script_discovery::clone_repo_to_drift_cache(&url, &base).await {
                             Ok(cloned_path) => {
                                 match crate::script_discovery::discover_script_entrypoint(&cloned_path) {
                                     Ok(entrypoint) => {
                                         let repo_path_str = cloned_path.display().to_string();
-                                        let spawn_cmd = match crate::script_discovery::resolve_entrypoint_to_spawn_cmd(&cloned_path, &entrypoint) {
+                                        let spawn_cmd = match crate::script_discovery::resolve_entrypoint_to_spawn_cmd(&cloned_path, &entrypoint, &base) {
                                             Ok(cmd) => {
-                                                if let Some(activate) = crate::script_discovery::detect_venv_activation(&cloned_path) {
+                                                if let Some(activate) = crate::script_discovery::detect_venv_activation(&cloned_path, &base) {
                                                     info!(venv = %activate, spawn_cmd = %cmd, "discovered script entrypoint with venv");
                                                 } else {
                                                     info!(spawn_cmd = %cmd, "discovered script entrypoint without venv");
