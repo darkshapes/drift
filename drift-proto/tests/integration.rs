@@ -141,15 +141,16 @@ mod auth_integration_tests {
             enable_auth: true,
             auth_threshold: 5usize,
         git_commit: None,
-        dataset_urls: vec!["https://example.com/dataset.tar".to_string()],
-        gpu_compute_capability: None,
-        repo_path: None,
-        env_file: None,
-        training_spawn_cmd: None,
-    };
-    assert!(config.enable_auth);
-    assert_eq!(config.auth_threshold, 5);
-}
+            dataset_urls: vec!["https://example.com/dataset.tar".to_string()],
+            gpu_compute_capability: None,
+            repo_path: None,
+            env_file: None,
+            training_spawn_cmd: None,
+            env_vars: None,
+        };
+        assert!(config.enable_auth);
+        assert_eq!(config.auth_threshold, 5);
+    }
 
     #[test]
     fn test_train_config_auth_serialization() {
@@ -165,15 +166,16 @@ mod auth_integration_tests {
             model_artifact_ref: None,
             enable_auth: true,
             auth_threshold: 3usize,
-        git_commit: None,
-        dataset_urls: vec!["https://example.com/dataset.tar".to_string()],
-        gpu_compute_capability: None,
-        repo_path: None,
-        env_file: None,
-        training_spawn_cmd: None,
-    };
-    let json = serde_json::to_string(&config).unwrap();
-    let parsed: TrainConfig = serde_json::from_str(&json).unwrap();
+            git_commit: None,
+            dataset_urls: vec!["https://example.com/dataset.tar".to_string()],
+            gpu_compute_capability: None,
+            repo_path: None,
+            env_file: None,
+            training_spawn_cmd: None,
+            env_vars: None,
+        };
+        let json = serde_json::to_string(&config).unwrap();
+        let parsed: TrainConfig = serde_json::from_str(&json).unwrap();
         assert!(parsed.enable_auth);
         assert_eq!(parsed.auth_threshold, 3);
     }
@@ -283,38 +285,40 @@ mod auth_integration_tests {
             model_artifact_ref: None,
             enable_auth: false,
             auth_threshold: 3usize,
-        git_commit: None,
-        dataset_urls: vec!["https://example.com/dataset.tar".to_string()],
-        gpu_compute_capability: None,
-        repo_path: None,
-        env_file: None,
-        training_spawn_cmd: None,
-    };
-    assert!(!config.enable_auth);
-}
+            git_commit: None,
+            dataset_urls: vec!["https://example.com/dataset.tar".to_string()],
+            gpu_compute_capability: None,
+            repo_path: None,
+            env_file: None,
+            training_spawn_cmd: None,
+            env_vars: None,
+        };
+        assert!(!config.enable_auth);
+    }
 
-#[test]
-fn test_auth_handshake_flow_auth_enabled_with_threshold() {
-    let config = TrainConfig {
-        model_path: "/model".to_string(),
-        dataset_path: "/data".to_string(),
-        batch_size: 32u32,
-        learning_rate: 0.001,
-        epochs: 100u32,
-        train_repo_url: None,
-        script_entrypoint: Some("src.main:ati".to_string()),
-        dataset_repo_url: None,
-        model_artifact_ref: None,
-        enable_auth: true,
-        auth_threshold: 3usize,
-        git_commit: None,
-        dataset_urls: vec!["https://example.com/dataset.tar".to_string()],
-        gpu_compute_capability: None,
-        repo_path: None,
-        env_file: None,
-        training_spawn_cmd: None,
-    };
-    assert!(config.enable_auth);
+    #[test]
+    fn test_auth_handshake_flow_auth_enabled_with_threshold() {
+        let config = TrainConfig {
+            model_path: "/model".to_string(),
+            dataset_path: "/data".to_string(),
+            batch_size: 32u32,
+            learning_rate: 0.001,
+            epochs: 100u32,
+            train_repo_url: None,
+            script_entrypoint: Some("src.main:ati".to_string()),
+            dataset_repo_url: None,
+            model_artifact_ref: None,
+            enable_auth: true,
+            auth_threshold: 3usize,
+            git_commit: None,
+            dataset_urls: vec!["https://example.com/dataset.tar".to_string()],
+            gpu_compute_capability: None,
+            repo_path: None,
+            env_file: None,
+            training_spawn_cmd: None,
+            env_vars: None,
+        };
+        assert!(config.enable_auth);
     assert_eq!(config.auth_threshold, 3);
 }
 

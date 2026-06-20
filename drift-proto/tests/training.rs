@@ -127,6 +127,7 @@ async fn test_training_pipeline() {
         repo_path: None,
         env_file: None,
         training_spawn_cmd: None,
+        env_vars: None,
     }),
     )
     .await

@@ -1,4 +1,5 @@
 use drift_coord::{checkpoint, monitor, scheduler};
+use drift_coord::env::{parse_env_file, filter_sensitive_keys};
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
@@ -61,6 +62,10 @@ enum Commands {
         /// URL of the repository containing the training script (triggers repo-based training)
         #[arg(long)]
         train_repo_url: Option<String>,
+
+        /// Path to .env file with environment variables to pass to nodes
+        #[arg(long)]
+        env_file: Option<String>,
     },
 }
 
@@ -85,9 +90,10 @@ async fn main() -> Result<()> {
             learning_rate,
             epochs,
             dataset_size,
-        checkpoint_dir,
-        train_repo_url,
-    } => {
+            checkpoint_dir,
+            train_repo_url,
+            env_file,
+        } => {
             train(
                 peers,
                 model_path,
@@ -98,6 +104,7 @@ async fn main() -> Result<()> {
                 dataset_size,
                 checkpoint_dir,
                 train_repo_url,
+                env_file,
             )
             .await
         }
@@ -114,6 +121,7 @@ async fn train(
     dataset_size: u64,
     checkpoint_dir: String,
     train_repo_url: Option<String>,
+    env_file: Option<String>,
 ) -> Result<()> {
     if peer_ids.is_empty() {
         anyhow::bail!("no peers specified. Use --peers <node_id1>,<node_id2>");
@@ -144,7 +152,7 @@ async fn train(
     let coord_id = endpoint.id();
     info!(%coord_id, "coordinator endpoint bound");
 
-    let train_config = TrainConfig {
+    let mut train_config = TrainConfig {
         model_path,
         dataset_path,
         batch_size,
@@ -162,7 +170,20 @@ async fn train(
         gpu_compute_capability: None,
         training_spawn_cmd: None,
         env_file: None,
+        env_vars: None,
     };
+
+    if let Some(ref path) = env_file {
+        match parse_env_file(path) {
+            Ok(raw_vars) => {
+                let filtered = filter_sensitive_keys(raw_vars);
+                train_config.update_env_vars(filtered);
+            }
+            Err(e) => {
+                warn!(%path, "failed to parse env file: {}", e);
+            }
+        }
+    }
 
     let mut _checkpoint_mgr = checkpoint::CheckpointManager::new(&checkpoint_dir);
     let mut monitor = monitor::Monitor::new();
