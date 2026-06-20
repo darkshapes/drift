@@ -400,7 +400,7 @@ async fn run_real_training(
 
     let master_port = 29500 + (std::process::id() % 1000);
     let mut cmd = if let Some(spawn_cmd) = &config.training_spawn_cmd {
-        let mut c = tokio::process::Command::new("sh");
+        let mut c = tokio::process::Command::new("bash");
         c.arg("-c").arg(spawn_cmd);
         info!(spawn_cmd = %spawn_cmd, "using training_spawn_cmd");
         c

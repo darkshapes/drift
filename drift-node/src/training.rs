@@ -95,7 +95,7 @@ pub async fn spawn_training_with_progress(
     let node_id_clone = node_id.clone();
 
     let use_shell = script.contains(' ') || repo_path.is_some();
-    let mut base_cmd = tokio::process::Command::new("sh");
+    let mut base_cmd = tokio::process::Command::new("bash");
     if use_shell {
         let venv_activate = repo_path
             .map(|p| format!("source \"{}/.venv/bin/activate\" && ", p))
