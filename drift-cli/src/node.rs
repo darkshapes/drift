@@ -401,8 +401,23 @@ async fn run_real_training(
     let master_port = 29500 + (std::process::id() % 1000);
     let mut cmd = if let Some(spawn_cmd) = &config.training_spawn_cmd {
         let mut c = tokio::process::Command::new("bash");
-        c.arg("-c").arg(spawn_cmd);
-        info!(spawn_cmd = %spawn_cmd, "using training_spawn_cmd");
+        let mut env_vars = Vec::new();
+        let cwd_env = std::path::Path::new(".").join(".env");
+        if cwd_env.exists() {
+            let cwd_env_str = cwd_env.display().to_string();
+            env_vars.extend(parse_env_file(&cwd_env_str));
+        }
+        if let Some(env_file_path) = &config.env_file {
+            env_vars.extend(parse_env_file(&env_file_path));
+        }
+        let env_prefix = format_env_prefix(&env_vars);
+        let full_cmd = if env_vars.is_empty() {
+            spawn_cmd.clone()
+        } else {
+            format!("{}{}", env_prefix, spawn_cmd)
+        };
+        c.arg("-c").arg(&full_cmd);
+        info!(spawn_cmd = %&full_cmd, "using training_spawn_cmd");
         c
     } else {
         warn!("training_spawn_cmd not available - using legacy mode with model_path");
@@ -728,6 +743,39 @@ pub fn resolve_entrypoint_to_spawn_cmd(_repo_path: &Path, script_key: &str, base
     } else {
         Ok(script_key.to_string())
     }
+}
+
+fn parse_env_file(path_str: &String) -> Vec<(String, String)> {
+    let mut env_vars = Vec::new();
+    let content = match std::fs::read_to_string(path_str) {
+        Ok(c) => c,
+        Err(_) => return env_vars,
+    };
+    for line in content.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+        if let Some(eq_pos) = trimmed.find('=') {
+            let key = trimmed[..eq_pos].trim().to_string();
+            let value = trimmed[eq_pos + 1..].trim().to_string();
+            if !key.is_empty() {
+                env_vars.push((key, value));
+            }
+        }
+    }
+    env_vars
+}
+
+fn format_env_prefix(env_vars: &Vec<(String, String)>) -> String {
+    if env_vars.is_empty() {
+        return String::new();
+    }
+    let pairs: Vec<String> = env_vars
+        .iter()
+        .map(|(k, v)| format!("{}={}", k, v))
+        .collect();
+    format!("{} ", pairs.join(" "))
 }
 
 fn run_git_ls_remote(repo_path: &std::path::Path) -> Option<String> {

@@ -161,6 +161,7 @@ async fn train(
         git_commit: None,
         gpu_compute_capability: None,
         training_spawn_cmd: None,
+        env_file: None,
     };
 
     let mut _checkpoint_mgr = checkpoint::CheckpointManager::new(&checkpoint_dir);

@@ -46,6 +46,8 @@ pub enum Commands {
         checkpoint_dir: String,
         #[arg(long, default_value = "false")]
         resume: bool,
+        #[arg(long)]
+        env_file: Option<String>,
     },
     #[clap(name = "status")]
     Status,

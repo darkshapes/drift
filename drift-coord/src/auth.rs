@@ -230,6 +230,7 @@ mod tests {
         gpu_compute_capability: None,
         repo_path: None,
         training_spawn_cmd: None,
+        env_file: None,
     }
 }
 
