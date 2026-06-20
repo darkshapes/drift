@@ -110,7 +110,8 @@ fn test_detect_venv_activation_with_venv() {
     fs::create_dir_all(&repo_path.join(".venv").join("bin")).unwrap();
     fs::write(repo_path.join(".venv").join("bin").join("activate"), "").unwrap();
 
-    let result = script_discovery::detect_venv_activation(&repo_path);
+    let base = std::env::temp_dir().join("drift-test");
+    let result = script_discovery::detect_venv_activation(&repo_path, &base);
     assert!(result.is_some(), "should find venv");
 
     cleanup_test_dir(&repo_path);
@@ -121,7 +122,8 @@ fn test_detect_venv_activation_without_venv() {
     let repo_path = temp_test_path("no_venv");
     fs::create_dir_all(&repo_path).unwrap();
 
-    let result = script_discovery::detect_venv_activation(&repo_path);
+    let base = std::env::temp_dir().join("drift-test");
+    let result = script_discovery::detect_venv_activation(&repo_path, &base);
     assert!(result.is_none(), "should not find venv");
 
     cleanup_test_dir(&repo_path);
@@ -133,7 +135,8 @@ fn test_resolve_entrypoint_with_venv() {
     fs::create_dir_all(&repo_path.join(".venv").join("bin")).unwrap();
     fs::write(repo_path.join(".venv").join("bin").join("activate"), "").unwrap();
 
-    let cmd = script_discovery::resolve_entrypoint_to_spawn_cmd(&repo_path, "src.main:ati");
+    let base = std::env::temp_dir().join("drift-test");
+    let cmd = script_discovery::resolve_entrypoint_to_spawn_cmd(&repo_path, "src.main:ati", &base);
     assert!(cmd.is_ok());
     let cmd_str = cmd.unwrap();
     assert!(cmd_str.contains("source"), "should include source");
@@ -143,11 +146,78 @@ fn test_resolve_entrypoint_with_venv() {
 }
 
 #[test]
+fn test_detect_venv_activation_with_covn_venv() {
+    let base = temp_test_path("covn_venv_base");
+    let covn_repo = base.join("covn").join("my-repo");
+    fs::create_dir_all(&covn_repo.join(".venv").join("bin")).unwrap();
+    fs::write(covn_repo.join(".venv").join("bin").join("activate"), "").unwrap();
+
+    let result = script_discovery::detect_venv_activation(&covn_repo, &base);
+    assert!(result.is_some(), "should find venv in standard covn location");
+    let path = result.unwrap();
+    assert!(path.contains("covn"), "should be in covn path");
+    assert!(path.contains(".venv/bin/activate"), "should reference venv activate");
+
+    cleanup_test_dir(&base);
+}
+
+#[test]
+fn test_detect_venv_activation_with_drift_venv() {
+    let base = temp_test_path("drift_venv_base");
+    let drift_repo = base.join("drift").join("another-repo");
+    fs::create_dir_all(&drift_repo.join(".venv").join("bin")).unwrap();
+    fs::write(drift_repo.join(".venv").join("bin").join("activate"), "").unwrap();
+
+    let result = script_discovery::detect_venv_activation(&drift_repo, &base);
+    assert!(result.is_some(), "should find venv in standard drift location");
+    let path = result.unwrap();
+    assert!(path.contains("drift"), "should be in drift path");
+    assert!(path.contains(".venv/bin/activate"), "should reference venv activate");
+
+    cleanup_test_dir(&base);
+}
+
+#[test]
+fn test_resolve_entrypoint_with_covn_venv() {
+    let base = temp_test_path("entry_with_covn_venv");
+    let covn_repo = base.join("covn").join("my-repo");
+    fs::create_dir_all(&covn_repo.join(".venv").join("bin")).unwrap();
+    fs::write(covn_repo.join(".venv").join("bin").join("activate"), "").unwrap();
+
+    let cmd = script_discovery::resolve_entrypoint_to_spawn_cmd(&covn_repo, "src.main:ati", &base);
+    assert!(cmd.is_ok());
+    let cmd_str = cmd.unwrap();
+    assert!(cmd_str.contains("source"), "should include source");
+    assert!(cmd_str.contains("covn"), "should reference covn path");
+    assert!(cmd_str.contains(".venv/bin/activate"), "should reference venv activate");
+
+    cleanup_test_dir(&base);
+}
+
+#[test]
+fn test_detect_venv_activation_prefers_local_over_standard() {
+    let base = temp_test_path("prefer_local");
+    let covn_repo = base.join("covn").join("my-repo");
+    fs::create_dir_all(&covn_repo.join(".venv").join("bin")).unwrap();
+    fs::write(covn_repo.join(".venv").join("bin").join("activate"), "").unwrap();
+    let standard_venv = base.join("drift").join("my-repo").join(".venv").join("bin").join("activate");
+    fs::create_dir_all(standard_venv.parent().unwrap()).unwrap();
+    fs::write(&standard_venv, "").unwrap();
+
+    let result = script_discovery::detect_venv_activation(&covn_repo, &base);
+    assert!(result.is_some());
+    let path = result.unwrap();
+    assert!(path.contains("covn"), "should prefer local venv");
+
+    cleanup_test_dir(&base);
+}
+
+#[test]
 fn test_resolve_entrypoint_without_venv() {
     let repo_path = temp_test_path("entry_no_venv");
     fs::create_dir_all(&repo_path).unwrap();
 
-    let cmd = script_discovery::resolve_entrypoint_to_spawn_cmd(&repo_path, "src.main:ati");
+    let cmd = script_discovery::resolve_entrypoint_to_spawn_cmd(&repo_path, "src.main:ati", &std::env::temp_dir());
     assert!(cmd.is_ok());
     let cmd_str = cmd.unwrap();
     assert!(!cmd_str.contains("source"), "should not include source");

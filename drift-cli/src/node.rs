@@ -292,12 +292,18 @@ let node_id_str = endpoint.id().to_string();
                                 if let Some(repo_url) = &config.train_repo_url {
                                     let repo_path = find_local_repo(repo_url);
                                     if let Some(path) = repo_path {
+                                    let base = if let Ok(home) = std::env::var("HOME") {
+                                        std::path::PathBuf::from(home).join(".local/share")
+                                    } else {
+                                        std::path::PathBuf::from("/tmp")
+                                    };
                                         match discover_script_entrypoint(&path) {
                                             Ok(entrypoint) => {
                                                 config.script_entrypoint = Some(entrypoint);
                                                 if let Ok(spawn_cmd) = resolve_entrypoint_to_spawn_cmd(
                                                     &path,
                                                     config.script_entrypoint.as_ref().unwrap(),
+                                                    &base,
                                                 ) {
                                                     config.training_spawn_cmd = Some(spawn_cmd);
                                                 }
@@ -670,8 +676,8 @@ fn find_ati_plug(value: &toml::Value) -> Option<String> {
                         if let Some(scripts_table) = scripts.as_table() {
                             for (key, value) in scripts_table {
                                 if key.ends_with("ati_plug") {
-                                    if let Some(s) = value.as_str() {
-                                        return Some(s.to_string());
+                                    if let Some(v) = value.as_str() {
+                                        return Some(v.to_string());
                                     }
                                 }
                             }
@@ -698,16 +704,22 @@ fn find_ati_plug(value: &toml::Value) -> Option<String> {
     None
 }
 
-pub fn detect_venv_activation(repo_path: &Path) -> Option<String> {
-    let activate_path = repo_path.join(".venv").join("bin").join("activate");
-    if activate_path.exists() {
-        Some(activate_path.display().to_string())
-    } else {
-        None
+pub fn detect_venv_activation(repo_path: &Path, base: &Path) -> Option<String> {
+    let local_venv = repo_path.join(".venv").join("bin").join("activate");
+    if local_venv.exists() {
+        return Some(local_venv.display().to_string());
     }
+    let repo_name = repo_path.file_name().map(|p| p.to_str()).unwrap_or(None).unwrap_or("");
+    for dir in &["covn", "drift"] {
+        let standard_venv = base.join(dir).join(repo_name).join(".venv").join("bin").join("activate");
+        if standard_venv.exists() {
+            return Some(standard_venv.display().to_string());
+        }
+    }
+    None
 }
 
-pub fn resolve_entrypoint_to_spawn_cmd(_repo_path: &Path, entrypoint: &str) -> Result<String> {
+pub fn resolve_entrypoint_to_spawn_cmd(_repo_path: &Path, entrypoint: &str, base: &Path) -> Result<String> {
     if entrypoint.is_empty() {
         anyhow::bail!("empty entrypoint");
     }
@@ -722,7 +734,7 @@ pub fn resolve_entrypoint_to_spawn_cmd(_repo_path: &Path, entrypoint: &str) -> R
     }
     let repo_str = _repo_path.to_str().unwrap_or("");
     let base_cmd = format!("PYTHONPATH={} python -c \"from {} import {}; {}()\"", repo_str, module, func, func);
-    if let Some(activate) = detect_venv_activation(_repo_path) {
+    if let Some(activate) = detect_venv_activation(_repo_path, base) {
         Ok(format!("source {} && {}", activate, base_cmd))
     } else {
         Ok(base_cmd)
