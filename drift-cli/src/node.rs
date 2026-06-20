@@ -286,6 +286,38 @@ let node_id_str = endpoint.id().to_string();
                     DriftMessage::TrainingReady => {
                         info!("TrainingReady received");
                         training_ready_received = true;
+
+                        if let Some(ref mut config) = train_config {
+                            if config.train_repo_url.is_some() && config.script_entrypoint.is_none() {
+                                if let Some(repo_url) = &config.train_repo_url {
+                                    let repo_path = find_local_repo(repo_url);
+                                    if let Some(path) = repo_path {
+                                        match discover_script_entrypoint(&path) {
+                                            Ok(entrypoint) => {
+                                                config.script_entrypoint = Some(entrypoint);
+                                                if let Ok(spawn_cmd) = resolve_entrypoint_to_spawn_cmd(
+                                                    &path,
+                                                    config.script_entrypoint.as_ref().unwrap(),
+                                                ) {
+                                                    config.training_spawn_cmd = Some(spawn_cmd);
+                                                }
+                                                let ep = config.script_entrypoint.as_ref().map(|s| s.as_str()).unwrap_or("<none>");
+                                                info!(entrypoint = %ep, "script entrypoint discovered");
+                                            }
+                                            Err(e) => {
+                                                error!(%e, "script discovery failed");
+                                                let now = format!("{}", time::OffsetDateTime::now_utc());
+                                                write_message(&mut send, &DriftMessage::TrainingCancel(drift_proto::TrainingCancel {
+                                                    repo_url: config.train_repo_url.clone().unwrap_or_default(),
+                                                    reason: e.to_string(),
+                                                    time: now,
+                                                })).await?;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
                     DriftMessage::TrainingCancel(cancel) => {
                         error!(reason = %cancel.reason, repo_url = %cancel.repo_url, "Training cancelled");
@@ -337,7 +369,7 @@ async fn run_training(
 ) -> Result<()> {
     match (config.train_repo_url.as_ref(), config.script_entrypoint.as_ref()) {
         (Some(_), None) => {
-            anyhow::bail!("train_repo_url is set but script_entrypoint is missing. Ensure _ati_plug is defined in pyproject.toml.");
+            anyhow::bail!("train_repo_url is set but script_entrypoint is missing. Ensure an ati_plug script is defined in pyproject.toml.");
         }
         (None, None) => {
             info!("train_repo_url and script_entrypoint are both None - running simulated training");
@@ -361,9 +393,19 @@ async fn run_real_training(
 
 
     let master_port = 29500 + (std::process::id() % 1000);
-    let mut cmd = tokio::process::Command::new("python3");
-    cmd.arg(&config.model_path)
-        .env("DRIFT_BATCH_SIZE", config.batch_size.to_string())
+    let mut cmd = if let Some(spawn_cmd) = &config.training_spawn_cmd {
+        let mut c = tokio::process::Command::new("sh");
+        c.arg("-c").arg(spawn_cmd);
+        info!(spawn_cmd = %spawn_cmd, "using training_spawn_cmd");
+        c
+    } else {
+        warn!("training_spawn_cmd not available - using legacy mode with model_path");
+        let mut c = tokio::process::Command::new("python3");
+        c.arg(&config.model_path);
+        c
+    };
+
+    cmd.env("DRIFT_BATCH_SIZE", config.batch_size.to_string())
         .env("DRIFT_LEARNING_RATE", config.learning_rate.to_string())
         .env("DRIFT_EPOCHS", config.epochs.to_string())
         .env("MASTER_ADDR", "127.0.0.1")
@@ -584,6 +626,107 @@ pub fn find_local_repo(repo_url: &str) -> Option<std::path::PathBuf> {
     }
 
     None
+}
+
+use std::path::{Path, PathBuf};
+use anyhow::Context;
+
+pub fn discover_script_entrypoint(repo_path: &Path) -> Result<String> {
+    let pyproject_path = repo_path.join("pyproject.toml");
+    let content = std::fs::read_to_string(&pyproject_path)
+        .with_context(|| format!("reading {:?}", pyproject_path))?;
+    let value: toml::Value = toml::from_str(&content)
+        .with_context(|| format!("parsing {:?}", pyproject_path))?;
+    if let Some(ati_plug) = find_ati_plug(&value) {
+        return Ok(ati_plug);
+    }
+    anyhow::bail!("ati_plug not found in {:?}", pyproject_path);
+}
+
+fn find_ati_plug(value: &toml::Value) -> Option<String> {
+    if let Some(project_table) = value.as_table() {
+        if let Some(project) = project_table.get("project") {
+            if let Some(project_table) = project.as_table() {
+                if let Some(scripts) = project_table.get("scripts") {
+                    if let Some(scripts_table) = scripts.as_table() {
+                        for (key, value) in scripts_table {
+                            if key.ends_with("ati_plug") {
+                                if let Some(s) = value.as_str() {
+                                    return Some(s.to_string());
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    if let Some(project_table) = value.as_table() {
+        if let Some(tool) = project_table.get("tool") {
+            if let Some(tool_table) = tool.as_table() {
+                if let Some(uv) = tool_table.get("uv") {
+                if let Some(uv_table) = uv.as_table() {
+                    if let Some(scripts) = uv_table.get("scripts") {
+                        if let Some(scripts_table) = scripts.as_table() {
+                            for (key, value) in scripts_table {
+                                if key.ends_with("ati_plug") {
+                                    if let Some(s) = value.as_str() {
+                                        return Some(s.to_string());
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                }
+            }
+        }
+    }
+    if let Some(project_table) = value.as_table() {
+        if let Some(scripts) = project_table.get("scripts") {
+            if let Some(scripts_table) = scripts.as_table() {
+                for (key, value) in scripts_table {
+                    if key.ends_with("ati_plug") {
+                        if let Some(_) = value.as_str() {
+                            return Some(key.to_string());
+                        }
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
+pub fn detect_venv_activation(repo_path: &Path) -> Option<String> {
+    let activate_path = repo_path.join(".venv").join("bin").join("activate");
+    if activate_path.exists() {
+        Some(activate_path.display().to_string())
+    } else {
+        None
+    }
+}
+
+pub fn resolve_entrypoint_to_spawn_cmd(_repo_path: &Path, entrypoint: &str) -> Result<String> {
+    if entrypoint.is_empty() {
+        anyhow::bail!("empty entrypoint");
+    }
+    if !entrypoint.contains(':') {
+        anyhow::bail!("invalid entrypoint format: {}", entrypoint);
+    }
+    let parts: Vec<&str> = entrypoint.split(':').collect();
+    let module = parts.first().unwrap_or(&"");
+    let func = parts.get(1).unwrap_or(&"");
+    if module.is_empty() || func.is_empty() {
+        anyhow::bail!("invalid entrypoint format: {}", entrypoint);
+    }
+    let repo_str = _repo_path.to_str().unwrap_or("");
+    let base_cmd = format!("PYTHONPATH={} python -c \"from {} import {}; {}()\"", repo_str, module, func, func);
+    if let Some(activate) = detect_venv_activation(_repo_path) {
+        Ok(format!("source {} && {}", activate, base_cmd))
+    } else {
+        Ok(base_cmd)
+    }
 }
 
 fn run_git_ls_remote(repo_path: &std::path::Path) -> Option<String> {
