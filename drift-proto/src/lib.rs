@@ -247,7 +247,6 @@ impl fmt::Display for DriftMessage {
             Self::AuthChallenge(msg) => write!(f, "AuthChallenge(node={}, seq={})", msg.node_id, msg.sequence),
             Self::AuthResponse(signed) => write!(f, "AuthResponse(node={}, sig_len={})", signed.node_id, signed.signature.len()),
             Self::AuthAggregate(agg) => write!(f, "AuthAggregate(threshold={}/{}, nodes={})", agg.threshold, agg.total_nodes, agg.node_ids.len()),
-            Self::EnvVars(vars) => write!(f, "EnvVars({} vars)", vars.len()),
             Self::TrainingReady => write!(f, "TrainingReady"),
             Self::TrainingCancel(c) => write!(f, "TrainingCancel(reason={}, time={}, repo={})", c.reason, c.time, c.repo_url),
             Self::RepoCommit(rc) => write!(f, "RepoCommit(commit={}, repo={})", &rc.commit[..8.min(rc.commit.len())], rc.repo_url),
@@ -311,22 +310,6 @@ pub struct TrainConfig {
     /// GPU compute capability (e.g., 8.9 for CUDA 8.9).
     #[serde(default)]
     pub gpu_compute_capability: Option<f64>,
-
-    /// Path to environment file for spawn command variables
-    #[serde(default)]
-    pub env_file: Option<String>,
-
-    /// Environment variables to pass inline (never persisted to disk).
-    /// Marked skip_serializing to prevent disk persistence in checkpoints.
-    #[serde(skip_serializing)]
-    #[serde(default)]
-    pub env_vars: Option<HashMap<String, String>>,
-}
-
-impl TrainConfig {
-    pub fn update_env_vars(&mut self, env_vars: HashMap<String, String>) {
-        self.env_vars = Some(env_vars);
-    }
 }
 
 /// Shard assignment for a specific node.
@@ -435,9 +418,6 @@ pub enum DriftMessage {
 
     /// Coordinator broadcasts aggregate back to all nodes
     AuthAggregate(AggregateAuthMessage),
-
-    /// Coordinator sends env vars to nodes inline (not from disk).
-    EnvVars(HashMap<String, String>),
 }
 
 /// ALPN protocol identifier for drift coordinator<->node traffic.

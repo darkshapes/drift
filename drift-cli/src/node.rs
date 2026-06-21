@@ -402,22 +402,8 @@ async fn run_real_training(
     let master_port = 29500 + (std::process::id() % 1000);
     let mut cmd = if let Some(spawn_cmd) = &config.training_spawn_cmd {
         let mut c = tokio::process::Command::new("bash");
-        let env_prefix = if let Some(env_vars) = &config.env_vars {
-            if env_vars.is_empty() {
-                String::new()
-            } else {
-                format_env_prefix_hashmap(env_vars)
-            }
-        } else {
-            String::new()
-        };
-        let full_cmd = if env_prefix.is_empty() {
-            spawn_cmd.clone()
-        } else {
-            format!("{}{}", env_prefix, spawn_cmd)
-        };
-        c.arg("-c").arg(&full_cmd);
-        info!(spawn_cmd = %&full_cmd, "using training_spawn_cmd");
+        c.arg("-c").arg(spawn_cmd);
+        info!(spawn_cmd = %spawn_cmd, "using training_spawn_cmd");
         c
     } else {
         warn!("training_spawn_cmd not available - using legacy mode with model_path");
@@ -743,17 +729,6 @@ pub fn resolve_entrypoint_to_spawn_cmd(_repo_path: &Path, script_key: &str, base
     } else {
         Ok(script_key.to_string())
     }
-}
-
-fn format_env_prefix_hashmap(env_vars: &HashMap<String, String>) -> String {
-    if env_vars.is_empty() {
-        return String::new();
-    }
-    let pairs: Vec<String> = env_vars
-        .iter()
-        .map(|(k, v)| format!("{}={}", k, v))
-        .collect();
-    format!("{} ", pairs.join(" "))
 }
 
 fn run_git_ls_remote(repo_path: &std::path::Path) -> Option<String> {

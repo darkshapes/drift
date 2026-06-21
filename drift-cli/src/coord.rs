@@ -2,10 +2,6 @@ use anyhow::{Context, Result};
 use drift_proto::{
     read_message, write_message, DriftMessage, NodeInfo, TrainConfig, TrainingCancel, DRIFT_ALPN,
 };
-use std::{
-    collections::HashMap,
-    io::BufRead,
-};
 use iroh::{Endpoint, PublicKey};
 use std::str::FromStr;
 use std::sync::Arc;
@@ -26,36 +22,10 @@ pub async fn train(
     dataset_size: u64,
     checkpoint_dir: String,
     resume: bool,
-    env_file: Option<String>,
 ) -> Result<()> {
     if peer_ids.is_empty() {
         anyhow::bail!("no peers specified. Use --peers <node_id1>,<node_id2>");
     }
-
-    // Parse env file and filter sensitive keys
-    // Default: .env.shared in cwd. Override: --env-file argument.
-    let parsed_env_vars: Option<HashMap<String, String>> = if let Some(path) = &env_file {
-        match parse_env_file(path) {
-            Ok(vars) => Some(filter_sensitive_keys(vars)),
-            Err(e) => {
-                warn!(path, "failed to parse env file: {}", e);
-                None
-            }
-        }
-    } else {
-        let env_shared_path = ".env.shared";
-        if std::path::Path::new(env_shared_path).exists() {
-            match parse_env_file(env_shared_path) {
-                Ok(vars) => Some(filter_sensitive_keys(vars)),
-                Err(e) => {
-                    warn!(env_shared_path, "failed to parse .env.shared: {}", e);
-                    None
-                }
-            }
-        } else {
-            None
-        }
-    };
 
     // Require repo: either from argument or from cache
     let repo = match repo {
@@ -107,8 +77,6 @@ pub async fn train(
         git_commit: None,
         gpu_compute_capability: None,
         repo_path: None,
-        env_file: env_file,
-        env_vars: parsed_env_vars,
     };
 
     // Connect to each peer and collect node info
@@ -661,35 +629,4 @@ fn assign_shards(
     }
 
     assignments
-}
-
-/// Parse environment variables from a .env file (e.g., .env.shared).
-fn parse_env_file(path: &str) -> std::io::Result<HashMap<String, String>> {
-    let file = std::fs::File::open(path)?;
-    let reader = std::io::BufReader::new(file);
-    let mut vars = HashMap::new();
-
-    for line in reader.lines() {
-        let line = line?;
-        let line = line.trim();
-        if line.is_empty() || line.starts_with('#') {
-            continue;
-        }
-        if let Some((key, val)) = line.split_once('=') {
-            let key = key.trim().to_string();
-            let val = val.trim().to_string();
-            vars.insert(key, val);
-        }
-    }
-
-    Ok(vars)
-}
-
-/// Filter out sensitive keys from environment variables.
-fn filter_sensitive_keys(env_vars: HashMap<String, String>) -> HashMap<String, String> {
-    let sensitive_patterns = ["KEY", "SECRET", "TOKEN", "PASSWORD", "PASS", "AUTH"];
-    env_vars
-        .into_iter()
-        .filter(|(k, _)| !sensitive_patterns.iter().any(|p| k.contains(p)))
-        .collect()
 }
