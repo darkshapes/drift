@@ -34,6 +34,28 @@ cargo xwin clippy       // For linux to windows compatibility
 cargo update --precise` // make lockfile changes.
 ```
 
+## Environment Variables
+
+When running training, the coordinator loads environment variables from `.env.shared` in the current working directory by default. This file is not checked into version control.
+
+### Creating .env.shared
+
+Create a `.env.shared` file for sensitive credentials and configuration:
+
+```sh
+# Example .env.shared
+HF_TOKEN=your_huggingface_token
+WANDB_API_KEY=your_wandb_key
+```
+
+### Overriding the default
+
+Use `--env-file` to specify an alternate path:
+
+```sh
+drift train --env-file /path/to/custom.env --repo https://github.com/org/repo
+```
+
 ## Testing
 
 ```sh
@@ -141,6 +163,102 @@ drift/target/release/drift-coord # Coordinator binary
 
 On MacOS, building `drift` may require permission from `integration`, `stress`, and `training` packages.
 
+## Project Structure
+
+```
+drift/
+├── Cargo.toml              # Workspace manifest
+│
+├── drift-auth/             # Authentication library
+│   └── src/lib.rs          # Ed25519, token validation, LRU cache
+│
+├── drift-proto/            # Protocol definitions
+│   ├── src/lib.rs           # Message types, framing, ALPN "drift/0"
+│   └── tests/
+│       ├── integration.rs   # Full handshake test suite
+│       ├── training.rs      # End-to-end training pipeline
+│       └── stress.rs        # Bulk message and gradient tests
+│
+├── drift-coord/           # Coordinator binary
+│   └── src/
+│       ├── main.rs           # CLI: coord, train commands
+│       ├── scheduler.rs      # Shard assignment by GPU capability
+│       ├── checkpoint.rs     # Checkpoint management
+│       └── monitor.rs        # Health monitoring, progress display
+│
+├── drift-node/            # Node binary
+│   └── src/
+│       ├── main.rs          # CLI: join, status
+│       ├── gpu.rs           # GPU detection (nvidia-smi, apple metal)
+│       ├── network.rs       # iroh endpoint, connection handling
+│       └── training.rs      # Local training loop subprocess
+│
+├── drift-cli/              # Unified CLI entry point
+│   └── src/
+│       ├── main.rs          # CLI: join, train, status, coord
+│       ├── node.rs          # Node lifecycle logic
+│       └── coord.rs         # Coordinator logic
+│
+└── examples/
+    ├── mock_train.py       # Mock training script for testing
+    └── train.yaml          # Example training configuration
+```
+
+### Components Locations
+
+```
+drift-cli
+Hardware detection
+Compute capability
+Initialize connection
+Simulate training
+Launch training
+Find local repos
+Git ls-remote
+
+drift-proto
+Message structs and constants
+NodeInfo /// CPU, GPU, Architecture, and rank
+TrainConfig /// Repo URL, Dataset path, checkpoint path, auth threshold
+ShardAssignment /// Division of data by compute per node
+TrainProgress /// Node Training Session Status
+CheckpointInfo /// Resume Training
+Ping /// Check response
+Pong /// Check response
+Heartbeat /// Connection Keepalive
+TrainComplete /// Coordinator signals training is complete.
+TrainingReady /// Coordinator signals nodes to begin training.
+TrainingCancel /// Coordinator broadcasts: commit verification failed, abort.
+RepoCommit /// Node sends commit info for verification.
+AskForMoreWork /// Request any incomplete tasks
+NoMoreWork /// No incomplete tasks available, shut down
+AssignNext /// Next incomplete task, begin
+
+drift-auth
+Sign RepoCommit
+
+drift-node
+Receive all from drift-coord
+Send
+NodeInfo
+TrainProgress
+Pong
+Heartbeat
+RepoCommit
+AskForMoreWork
+
+drift-coord
+Receive all from drift-node
+Send
+TrainConfig
+ShardAssignment
+Ping
+TrainingReady
+TrainingCancel
+NoMoreWork
+AssignNext
+```
+
 ## Roadmap
 
 - migrate negate dataset loading to nocturne
@@ -206,65 +324,10 @@ Recommended Implementation Order
 5. Write checkpoints to local cache for resume support
 ```
 
-## Components Locations
+Vestigial drift-proto todo:
 
 ```
-drift-cli
-Hardware detection
-Compute capability
-Initialize connection
-Simulate training
-Launch training
-Find local repos
-Git ls-remote
 
-drift-proto
-Message structs and constants
-NodeInfo /// CPU, GPU, Architecture, and rank
-TrainConfig /// Repo URL, Dataset path, checkpoint path, auth threshold
-ShardAssignment /// Division of data by compute per node
-TrainProgress /// Node Training Session Status
-CheckpointInfo /// Resume Training
-Ping /// Check response
-Pong /// Check response
-Heartbeat /// Connection Keepalive
-TrainComplete /// Coordinator signals training is complete.
-TrainingReady /// Coordinator signals nodes to begin training.
-TrainingCancel /// Coordinator broadcasts: commit verification failed, abort.
-RepoCommit /// Node sends commit info for verification.
-AskForMoreWork /// Request any incomplete tasks
-NoMoreWork /// No incomplete tasks available, shut down
-AssignNext /// Next incomplete task, begin
-
-drift-auth
-Sign RepoCommit
-
-drift-node
-Receive all from drift-coord
-Send
-NodeInfo
-TrainProgress
-Pong
-Heartbeat
-RepoCommit
-AskForMoreWork
-
-drift-coord
-Receive all from drift-node
-Send
-TrainConfig
-ShardAssignment
-Ping
-TrainingReady
-TrainingCancel
-NoMoreWork
-AssignNext
-```
-
-Remove from drift-proto
-
-```
-Vestigal
 DRIFT_RING_ALPN
 
     AuthChallenge 	/// Coordinator sends to node: "please authenticate"
@@ -336,3 +399,37 @@ pub const MAX_MESSAGE_SIZE: usize = 64 * 1024 * 1024;
     /// GPU compute capability (e.g., 8.9 for CUDA 8.9).
     #[serde(default)]
 ```
+
+~60-70% of drift-auth code is test-only or unused in production.
+used components: message types, signature aggregation, repo commit verification.
+not used: Replay protection, AuthConfig, CoordinatorAuth
+
+### References
+
+https://arxiv.org/abs/2007.14390 Flower: A Friendly Federated Learning Research Framework<br>
+https://arxiv.org/abs/2103.03239 Moshpit SGD: Communication-Efficient Decentralized Training on Heterogeneous Unreliable Devices<br>
+https://arxiv.org/abs/2103.16257 Model-Contrastive Federated Learning<br>
+https://arxiv.org/abs/2106.10207 Distributed Deep Learning in Open Collaborations<br>
+https://arxiv.org/abs/2311.08105 DiLoCo: Distributed Low-Communication Training of Language Models<br>
+https://arxiv.org/abs/2402.01862 Parametric Feature Transfer: One-shot Federated Learning<br>
+https://arxiv.org/abs/2402.19481 DistriFusion: Distributed Parallel Inference for High-Resolution<br>
+https://arxiv.org/abs/2406.01566 Helix: Serving Large Language Models over Heterogeneous GPUs<br>
+https://arxiv.org/abs/2407.07852 OpenDiLoCo: An Open-Source Framework for Globally Distributed Low-Communication Training<br>
+https://arxiv.org/abs/2501.05450 Decentralized Diffusion Models<br>
+https://arxiv.org/abs/2504.00952 Personalized Federated Training of Diffusion Models with Privacy<br>
+https://arxiv.org/abs/2504.17096 Sailor: Automating Distributed Training over Dynamic, Heterogeneous<br>
+https://arxiv.org/abs/2505.15306 Multiple Weaks Win Single Strong: Large Language Models Ensemble<br>
+https://arxiv.org/abs/2506.14202 DiffusionBlocks: Block-wise Neural Network Training via Diffusion<br>
+https://arxiv.org/abs/2507.00507 Towards Resource-Efficient Serverless LLM Inference with SLINFER<br>
+https://arxiv.org/abs/2509.26182 Parallax: Efficient LLM Inference Service over Decentralized Environment<br>
+https://arxiv.org/abs/2601.03184 Decentralized Autoregressive Generation<br>
+https://arxiv.org/abs/2601.06857 MoE-DisCo:Low Economy Cost Training Mixture-of-Experts Models<br>
+https://arxiv.org/abs/2601.16863 Mixture-of-Models: Unifying Heterogeneous Agents via N-Way Self-Eval<br>
+https://arxiv.org/abs/2602.02192 ECHO-2: A Large-Scale Distributed Rollout Framework<br>
+https://arxiv.org/abs/2602.02685 Expert-Data Alignment Governs Generation Quality in Decentralized<br>
+https://arxiv.org/abs/2602.08387 Modalities, a PyTorch-native Framework For Large-scale LLM Training<br>
+https://arxiv.org/abs/2603.06741 Heterogeneous Decentralized Diffusion Models<br>
+https://arxiv.org/abs/2603.08163 Covenant-72B: Pre-Training a 72B LLM with Trustless Peers<br>
+https://arxiv.org/abs/2604.14561 CoCoDiff: Optimizing Collective Communications for Distributed<br>
+https://arxiv.org/abs/2604.21428 Decoupled DiLoCo for Resilient Distributed Pre-training<br>
+https://arxiv.org/abs/2605.06663 EMO: Pretraining Mixture of Experts for Emergent Modularity<br>

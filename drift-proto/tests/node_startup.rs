@@ -42,6 +42,7 @@ fn test_load_cached_state_returns_last_checkpoint() {
         repo_path: None,
         env_file: None,
         training_spawn_cmd: None,
+        env_vars: None,
     };
 
     let shard = ShardAssignment {

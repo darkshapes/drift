@@ -4,7 +4,7 @@
 
 Current spawn command constructs `python -c "from module import func; func()"` from entrypoint value. Should instead use the script **key** directly: `source activate && ati_plug`
 
-## Implementation
+/## Implementation
 
 ### Stage 1: Modify `find_ati_plug()` to return script key
 
@@ -59,8 +59,8 @@ Current spawn command constructs `python -c "from module import func; func()"` f
 
 - **Goal:** Confirm spawn command matches expected format
 
-| Step | Description                                                                          | Status | Verification |
-| ---- | ------------------------------------------------------------------------------------ | ------ | ------------ |
+| Step | Description                                                                          | Status | Verification                      |
+| ---- | ------------------------------------------------------------------------------------ | ------ | --------------------------------- |
 | 5.1  | Test: `ati_plug = "ati.__init__:main"` → `source activate && ati_plug`               | 100%   | `cargo test --package drift-node` |
 | 5.2  | Test: `template_ati_plug = "template:main"` → `source activate && template_ati_plug` | 100%   | `cargo test --package drift-node` |
 
