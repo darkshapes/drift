@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::process::Stdio;
 use std::sync::Arc;
 
@@ -85,7 +84,6 @@ pub async fn spawn_training_with_progress(
     progress_tx: Sender<DriftMessage>,
     cached_state: Option<LocalShardState>,
     repo_path: Option<&str>,
-    env_vars: Option<HashMap<String, String>>,
 ) -> Result<(tokio::process::Child, u64)> {
     info!(
         script,
@@ -99,24 +97,12 @@ pub async fn spawn_training_with_progress(
     let use_shell = script.contains(' ') || repo_path.is_some();
     let mut base_cmd = tokio::process::Command::new("bash");
     if use_shell {
-        let env_vars_prefix = env_vars
-            .map(|vars| {
-                vars.iter()
-                    .map(|(k, v)| format!("{}={} ", k, v))
-                    .collect::<String>()
-            })
-            .unwrap_or_default();
         let venv_activate = repo_path
             .map(|p| format!("source \"{}/.venv/bin/activate\" && ", p))
             .unwrap_or_default();
-        base_cmd.arg("-c").arg(format!("{}python {} {}", env_vars_prefix, venv_activate, script));
+        base_cmd.arg("-c").arg(format!("{}python {}", venv_activate, script));
     } else {
         base_cmd.arg(script);
-        if let Some(vars) = env_vars {
-            for (k, v) in vars {
-                base_cmd.env(k, v);
-            }
-        }
     }
     base_cmd.arg("--model-path").arg(model_path)
         .arg("--dataset-path").arg(dataset_path);

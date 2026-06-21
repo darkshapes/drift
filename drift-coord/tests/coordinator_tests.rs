@@ -35,9 +35,7 @@ fn scenario_node_persists_and_restores_assignment() {
             git_commit: None,
             gpu_compute_capability: None,
             repo_path: None,
-            env_file: None,
             training_spawn_cmd: None,
-            env_vars: None,
         };
 
         let local_state = LocalShardState {

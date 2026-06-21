@@ -73,9 +73,7 @@ mod repo_commit_tests {
             dataset_urls: vec![],
             gpu_compute_capability: None,
             repo_path: None,
-            env_file: None,
             training_spawn_cmd: None,
-            env_vars: None,
         };
 
         assert!(config.git_commit.is_none());
@@ -103,9 +101,7 @@ mod repo_commit_tests {
             dataset_urls: vec![],
             gpu_compute_capability: None,
             repo_path: None,
-            env_file: None,
             training_spawn_cmd: None,
-            env_vars: None,
         };
 
         let json = serde_json::to_string(&config);

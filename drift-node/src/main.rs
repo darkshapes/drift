@@ -114,7 +114,6 @@ async fn join(name: Option<String>) -> Result<()> {
                         progress_tx,
                         Some(cached.clone()),
                         config.repo_path.as_ref().map(|p| p.as_str()),
-                        config.env_vars.clone(),
                     ).await {
                         Ok((_child, final_step)) => {
                             println!("training completed at step {}", final_step);
