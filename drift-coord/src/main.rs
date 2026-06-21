@@ -30,37 +30,17 @@ enum Commands {
         #[arg(long, default_value = "train.yaml")]
         config: String,
 
-        /// Path to model
-        #[arg(long, default_value = "model.pt")]
-        model_path: String,
-
-        /// Path to dataset
-        #[arg(long, default_value = "data/")]
-        dataset_path: String,
-
-        /// Batch size per node
-        #[arg(long, default_value = "32")]
-        batch_size: u32,
-
-        /// Learning rate
-        #[arg(long, default_value = "0.001")]
-        learning_rate: f64,
-
-        /// Number of epochs
-        #[arg(long, default_value = "10")]
-        epochs: u32,
-
-        /// Total dataset size in bytes (for shard calculation)
-        #[arg(long, default_value = "1000000")]
-        dataset_size: u64,
-
-        /// Checkpoint output directory
-        #[arg(long, default_value = "checkpoints/")]
-        checkpoint_dir: String,
-
         /// URL of the repository containing the training script (triggers repo-based training)
         #[arg(long)]
         train_repo_url: Option<String>,
+
+        /// Model artifact (HF ID, local path, or URL)
+        #[arg(long)]
+        model_artifact: Option<String>,
+
+        /// Dataset URLs
+        #[arg(long, value_delimiter = ',')]
+        dataset_urls: Vec<String>,
     },
 }
 
@@ -79,25 +59,15 @@ async fn main() -> Result<()> {
         Commands::Train {
             peers,
             config: _,
-            model_path,
-            dataset_path,
-            batch_size,
-            learning_rate,
-            epochs,
-            dataset_size,
-            checkpoint_dir,
             train_repo_url,
+            model_artifact,
+            dataset_urls,
         } => {
             train(
                 peers,
-                model_path,
-                dataset_path,
-                batch_size,
-                learning_rate,
-                epochs,
-                dataset_size,
-                checkpoint_dir,
                 train_repo_url,
+                model_artifact,
+                dataset_urls,
             )
             .await
         }
@@ -106,14 +76,9 @@ async fn main() -> Result<()> {
 
 async fn train(
     peer_ids: Vec<String>,
-    model_path: String,
-    dataset_path: String,
-    batch_size: u32,
-    learning_rate: f64,
-    epochs: u32,
-    dataset_size: u64,
-    checkpoint_dir: String,
     train_repo_url: Option<String>,
+    model_artifact: Option<String>,
+    dataset_urls: Vec<String>,
 ) -> Result<()> {
     if peer_ids.is_empty() {
         anyhow::bail!("no peers specified. Use --peers <node_id1>,<node_id2>");
@@ -145,25 +110,12 @@ async fn train(
     info!(%coord_id, "coordinator endpoint bound");
 
     let train_config = TrainConfig {
-        model_path,
-        dataset_path,
-        batch_size,
-        learning_rate,
-        epochs,
-        repo_path: None,
-        train_repo_url,
-        script_entrypoint: None,
-        dataset_repo_url: None,
-        dataset_urls: vec![],
-        model_artifact_ref: None,
-        enable_auth: false,
-        auth_threshold: 3,
-        git_commit: None,
-        gpu_compute_capability: None,
-        training_spawn_cmd: None,
+        model_artifact,
+        repo_hash: None,
+        dataset_urls,
     };
 
-    let mut _checkpoint_mgr = checkpoint::CheckpointManager::new(&checkpoint_dir);
+    // TODO: Add checkpoint manager with new config
     let mut monitor = monitor::Monitor::new();
 
     // Connect to each peer and collect node info
@@ -217,6 +169,8 @@ async fn train(
     }
 
     // Calculate shard assignments
+    // TODO: Get dataset size from model config or dataset URLs
+    let dataset_size: u64 = 0;
     let assignments = scheduler::assign_shards(&node_infos, dataset_size);
 
     let total_vram: u64 = node_infos.iter().map(|n| n.gpu_vram_mb).sum();
@@ -228,10 +182,6 @@ async fn train(
     println!("Starting training:");
     println!("  Nodes:         {}", node_infos.len());
     println!("  Total VRAM:    {} MB", total_vram);
-    println!("  Epochs:        {}", epochs);
-    println!("  Batch size:    {} (per node)", batch_size);
-    println!("  Learning rate: {}", learning_rate);
-    println!("  Dataset:       {} bytes ({} shards)", dataset_size, assignments.len());
     println!();
 
     // Send training config and shard assignments to each peer

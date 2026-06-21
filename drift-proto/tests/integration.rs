@@ -120,60 +120,49 @@ mod auth_integration_tests {
     use std::time::{SystemTime, UNIX_EPOCH};
 
     #[test]
-    fn test_train_config_auth_fields_default() {
+    fn test_train_config_refactored_default() {
         let config = TrainConfig::default();
-        assert!(!config.enable_auth);
-        assert_eq!(config.auth_threshold, 0);
+        assert!(config.model_artifact.is_none());
+        assert!(config.repo_hash.is_none());
+        assert!(config.dataset_urls.is_empty());
     }
 
     #[test]
-    fn test_train_config_auth_fields_set() {
+    fn test_train_config_refactored_with_model_artifact() {
         let config = TrainConfig {
-            model_path: "/model".to_string(),
-            dataset_path: "/data".to_string(),
-            batch_size: 32u32,
-            learning_rate: 0.001,
-            epochs: 100u32,
-            train_repo_url: None,
-            script_entrypoint: Some("src.main:ati".to_string()),
-            dataset_repo_url: None,
-            model_artifact_ref: None,
-            enable_auth: true,
-            auth_threshold: 5usize,
-        git_commit: None,
-            dataset_urls: vec!["https://example.com/dataset.tar".to_string()],
-            gpu_compute_capability: None,
-            repo_path: None,
-            training_spawn_cmd: None,
+            model_artifact: Some("hf://model".to_string()),
+            repo_hash: Some("abc123".to_string()),
+            dataset_urls: vec!["https://example.com/data.tar".to_string()],
         };
-        assert!(config.enable_auth);
-        assert_eq!(config.auth_threshold, 5);
+        assert_eq!(config.model_artifact, Some("hf://model".to_string()));
+        assert_eq!(config.repo_hash, Some("abc123".to_string()));
+        assert_eq!(config.dataset_urls.len(), 1);
     }
 
     #[test]
-    fn test_train_config_auth_serialization() {
+    fn test_train_config_refactored_serialization() {
         let config = TrainConfig {
-            model_path: "/model".to_string(),
-            dataset_path: "/data".to_string(),
-            batch_size: 32u32,
-            learning_rate: 0.001,
-            epochs: 100u32,
-            train_repo_url: None,
-            script_entrypoint: None,
-            dataset_repo_url: None,
-            model_artifact_ref: None,
-            enable_auth: true,
-            auth_threshold: 3usize,
-            git_commit: None,
-            dataset_urls: vec!["https://example.com/dataset.tar".to_string()],
-            gpu_compute_capability: None,
-            repo_path: None,
-            training_spawn_cmd: None,
+            model_artifact: Some("local:///path/to/model".to_string()),
+            repo_hash: Some("def456".to_string()),
+            dataset_urls: vec!["https://data.example.com/set1".to_string(), "https://data.example.com/set2".to_string()],
         };
         let json = serde_json::to_string(&config).unwrap();
         let parsed: TrainConfig = serde_json::from_str(&json).unwrap();
-        assert!(parsed.enable_auth);
-        assert_eq!(parsed.auth_threshold, 3);
+        assert_eq!(parsed.model_artifact, Some("local:///path/to/model".to_string()));
+        assert_eq!(parsed.repo_hash, Some("def456".to_string()));
+        assert_eq!(parsed.dataset_urls.len(), 2);
+    }
+
+    #[test]
+    fn test_train_config_refactored_empty_urls() {
+        let config = TrainConfig {
+            model_artifact: None,
+            repo_hash: None,
+            dataset_urls: vec![],
+        };
+        assert!(config.model_artifact.is_none());
+        assert!(config.repo_hash.is_none());
+        assert!(config.dataset_urls.is_empty());
     }
 
     #[test]
@@ -191,13 +180,12 @@ mod auth_integration_tests {
         }
     }
 
-   #[test]
+    #[test]
     fn test_drift_message_auth_response_variant() {
-         use ed25519_dalek::Signer;
-          use drift_auth::CryptoOsRng;
+        use ed25519_dalek::Signer;
 
-         let mut rng = drift_auth::CryptoOsRng::new();
-         let keypair = ed25519_dalek::SigningKey::generate(&mut rng);
+        let mut rng = drift_auth::CryptoOsRng::new();
+        let keypair = ed25519_dalek::SigningKey::generate(&mut rng);
         let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
         let auth_msg = AuthMessage::with_values("node1", "abc123", now, 42u64, 1u64);
         let signed = SignedAuthMessage::sign(&auth_msg, &keypair).unwrap();
@@ -212,14 +200,13 @@ mod auth_integration_tests {
             _ => panic!("expected AuthResponse variant"),
         }
     }
-     
+
     #[test]
     fn test_drift_message_auth_aggregate_variant() {
-          use ed25519_dalek::Signer;
-         use drift_auth::CryptoOsRng;
+        use ed25519_dalek::Signer;
 
-          let mut rng = drift_auth::CryptoOsRng::new();
-         let keypair = ed25519_dalek::SigningKey::generate(&mut rng);
+        let mut rng = drift_auth::CryptoOsRng::new();
+        let keypair = ed25519_dalek::SigningKey::generate(&mut rng);
         let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
         let auth_msg = AuthMessage::with_values("node1", "abc123", now, 42u64, 1u64);
 
@@ -256,68 +243,8 @@ mod auth_integration_tests {
     }
 
     #[test]
-    fn test_auth_message_with_auth_config_disabled() {
-        let config = TrainConfig::default();
-        assert!(!config.enable_auth);
-    }
-
-    #[test]
-    fn test_auth_message_with_auth_config_threshold_defaults() {
-        let config = TrainConfig::default();
-        assert_eq!(config.auth_threshold, 0);
-    }
-
-    #[test]
-  fn test_auth_handshake_flow_auth_disabled() {
-      let config = TrainConfig {
-            model_path: "/model".to_string(),
-            dataset_path: "/data".to_string(),
-            batch_size: 32u32,
-            learning_rate: 0.001,
-            epochs: 100u32,
-            train_repo_url: None,
-            script_entrypoint: Some("src.main:ati".to_string()),
-            dataset_repo_url: None,
-            model_artifact_ref: None,
-            enable_auth: false,
-            auth_threshold: 3usize,
-            git_commit: None,
-            dataset_urls: vec!["https://example.com/dataset.tar".to_string()],
-            gpu_compute_capability: None,
-            repo_path: None,
-            training_spawn_cmd: None,
-        };
-        assert!(!config.enable_auth);
-    }
-
-    #[test]
-    fn test_auth_handshake_flow_auth_enabled_with_threshold() {
-        let config = TrainConfig {
-            model_path: "/model".to_string(),
-            dataset_path: "/data".to_string(),
-            batch_size: 32u32,
-            learning_rate: 0.001,
-            epochs: 100u32,
-            train_repo_url: None,
-            script_entrypoint: Some("src.main:ati".to_string()),
-            dataset_repo_url: None,
-            model_artifact_ref: None,
-            enable_auth: true,
-            auth_threshold: 3usize,
-            git_commit: None,
-            dataset_urls: vec!["https://example.com/dataset.tar".to_string()],
-            gpu_compute_capability: None,
-            repo_path: None,
-            training_spawn_cmd: None,
-        };
-        assert!(config.enable_auth);
-    assert_eq!(config.auth_threshold, 3);
-}
-
- #[test]
-   fn test_auth_handshake_full_flow() {
+    fn test_auth_handshake_full_flow() {
         use ed25519_dalek::Signer;
-        use drift_auth::CryptoOsRng;
 
         let mut rng = drift_auth::CryptoOsRng::new();
         let keypair = ed25519_dalek::SigningKey::generate(&mut rng);

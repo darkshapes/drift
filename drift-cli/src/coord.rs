@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use anyhow::{Context, Result};
 use drift_proto::{
     read_message, write_message, DriftMessage, NodeInfo, TrainConfig, TrainingCancel, DRIFT_ALPN,
@@ -10,45 +11,28 @@ use tokio::sync::Mutex;
 use tracing::{error, info, warn};
 
 pub async fn train(
-    repo: Option<String>,
     peer_ids: Vec<String>,
-    _script: Option<String>,
-    model_path: String,
-    dataset_path: String,
+    train_repo_url: Option<String>,
+    model_artifact: Option<String>,
     dataset_urls: Vec<String>,
-    batch_size: u32,
-    learning_rate: f64,
-    epochs: u32,
-    dataset_size: u64,
-    checkpoint_dir: String,
     resume: bool,
 ) -> Result<()> {
     if peer_ids.is_empty() {
         anyhow::bail!("no peers specified. Use --peers <node_id1>,<node_id2>");
     }
 
-    // Require repo: either from argument or from cache
-    let repo = match repo {
+    let repo = match train_repo_url {
         Some(r) => r,
         None => {
-            anyhow::bail!("no repo specified. Use --repo <url> or run a training session first to cache a repo")
+            anyhow::bail!("no repo specified. Use --train-repo-url <url>");
         }
     };
 
     let started = Instant::now();
     println!("drift coordinator starting");
 
-    // Check for resume
     if resume {
-        let latest_path = std::path::Path::new(&checkpoint_dir).join("latest.json");
-        if latest_path.exists() {
-            let data = tokio::fs::read_to_string(&latest_path).await?;
-            let ckpt: drift_proto::CheckpointInfo = serde_json::from_str(&data)?;
-            println!("  Resuming from checkpoint at step {}", ckpt.step);
-            println!("  Checkpoint path: {}", ckpt.path);
-        } else {
-            println!("  No checkpoint found, starting fresh");
-        }
+        println!("  Resume: enabled");
     }
 
     println!("  Peers: {}", peer_ids.len());
@@ -61,22 +45,9 @@ pub async fn train(
     info!(coord_id = %endpoint.id(), "coordinator endpoint bound");
 
     let train_config = TrainConfig {
-        model_path,
-        dataset_path,
+        model_artifact,
+        repo_hash: None,
         dataset_urls,
-        batch_size,
-        learning_rate,
-        epochs,
-        train_repo_url: Some(repo.clone()),
-        script_entrypoint: None,
-        dataset_repo_url: None,
-        model_artifact_ref: None,
-        enable_auth: false,
-        training_spawn_cmd: None,
-        auth_threshold: 3,
-        git_commit: None,
-        gpu_compute_capability: None,
-        repo_path: None,
     };
 
     // Connect to each peer and collect node info
@@ -129,6 +100,7 @@ pub async fn train(
         anyhow::bail!("no peers responded with node info");
     }
 
+    let dataset_size = 0u64;
     let assignments = assign_shards(&node_infos, dataset_size);
 
     println!("==> Stage: Shard Division");
@@ -156,8 +128,7 @@ pub async fn train(
             num_connections,
             &node_infos[i].node_id[..12.min(node_infos[i].node_id.len())]
         );
-        let mut config = train_config.clone();
-        config.git_commit = None;
+        let config = train_config.clone();
         write_message(send, &DriftMessage::TrainConfig(config)).await?;
         write_message(
             send,
@@ -262,10 +233,6 @@ pub async fn train(
     let unique_commits: std::collections::HashSet<_> = commits.iter().collect();
 
     if unique_commits.len() != 1 {
-use std::{
-    collections::HashMap,
-    io::{self, BufRead},
-};
         let mut commit_groups: HashMap<&str, Vec<&str>> = HashMap::new();
         for (node_id, commit) in &repo_commits {
             let commit_key = &commit.commit[..8.min(commit.commit.len())];
@@ -355,31 +322,11 @@ use std::{
         total_vram
     );
     info!(
-        epochs,
-        batch_size,
-        learning_rate,
-        "  Epochs: {}, Batch size: {}, Learning rate: {}",
-        epochs,
-        batch_size,
-        learning_rate
-    );
-    info!(
-        dataset_size = dataset_size,
         shards = assignments.len(),
-        "  Dataset: {} bytes ({} shards)",
-        dataset_size,
+        "  Shards: {}",
         assignments.len()
     );
     println!();
-
-    // Create checkpoint dir
-    tokio::fs::create_dir_all(&checkpoint_dir).await.ok();
-
-    // Checkpoint tracking: save every 100 steps
-    let max_step = Arc::new(Mutex::new(0u64));
-    let last_ckpt_step = Arc::new(Mutex::new(0u64));
-    let ckpt_dir = checkpoint_dir.clone();
-    let ckpt_nodes: Vec<String> = node_infos.iter().map(|n| n.node_id.clone()).collect();
 
     println!("Monitoring training progress (Ctrl+C to stop)...");
     println!();
@@ -428,17 +375,12 @@ use std::{
             }
         });
 
-        let ms = max_step.clone();
-        let lcs = last_ckpt_step.clone();
-        let cd = ckpt_dir.clone();
-        let cn = ckpt_nodes.clone();
-
         let handle = tokio::spawn(async move {
             let mut last_step = 0u64;
             let mut last_loss = 0.0f64;
 
-           loop {
-            match read_message(&mut recv).await {
+            loop {
+                match read_message(&mut recv).await {
                     Ok(DriftMessage::TrainProgress(p)) => {
                         println!(
                             "  [{}] epoch {} step {} | loss {:.4} | {:.1} samples/s",
@@ -451,32 +393,6 @@ use std::{
                         last_step = p.step;
                         last_loss = p.loss;
                         seen.lock().await.insert(node_id.clone(), Instant::now());
-
-                        // Track max step and save checkpoint every 100 steps
-                        let mut ms_guard = ms.lock().await;
-                        if p.step > *ms_guard {
-                            *ms_guard = p.step;
-                        }
-                        let mut lcs_guard = lcs.lock().await;
-                        if *ms_guard > 0 && *ms_guard - *lcs_guard >= 100 {
-                            *lcs_guard = *ms_guard;
-                            let step = *ms_guard;
-                            drop(ms_guard);
-                            drop(lcs_guard);
-                            // Write checkpoint metadata
-                            let ckpt = drift_proto::CheckpointInfo {
-                                step,
-                                path: format!("{}/checkpoint-step-{}.pt", cd, step),
-                                nodes_contributed: cn.clone(),
-                            };
-                            let meta_path = format!("{}/checkpoint-step-{}.json", cd, step);
-                            if let Ok(json) = serde_json::to_string_pretty(&ckpt) {
-                                let _ = tokio::fs::write(&meta_path, &json).await;
-                                let latest = format!("{}/latest.json", cd);
-                                let _ = tokio::fs::write(&latest, &json).await;
-                                println!("  checkpoint saved at step {}", step);
-                            }
-                        }
                     }
                     Ok(DriftMessage::Pong) => {
                         seen.lock().await.insert(node_id.clone(), Instant::now());
@@ -553,7 +469,6 @@ use std::{
             last_loss,
         );
     }
-    println!("  Checkpoints: {}", checkpoint_dir);
     println!("------------------------");
 
     endpoint.close().await;

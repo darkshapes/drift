@@ -58,50 +58,25 @@ mod repo_commit_tests {
     #[test]
     fn test_train_config_can_store_git_commit() {
         let mut config = TrainConfig {
-            model_path: "/tmp/model".to_string(),
-            dataset_path: "/tmp/dataset".to_string(),
-            batch_size: 32,
-            learning_rate: 0.001,
-            epochs: 10,
-            train_repo_url: Some("https://github.com/user/repo".to_string()),
-            script_entrypoint: None,
-            dataset_repo_url: None,
-            auth_threshold: 3,
-            enable_auth: false,
-            model_artifact_ref: None,
-            git_commit: None,
+            model_artifact: Some("/tmp/model".to_string()),
+            repo_hash: Some("abc123".to_string()),
             dataset_urls: vec![],
-            gpu_compute_capability: None,
-            repo_path: None,
-            training_spawn_cmd: None,
         };
 
-        assert!(config.git_commit.is_none());
+        assert!(config.repo_hash.is_some());
+        assert_eq!(config.repo_hash, Some("abc123".to_string()));
 
-        config.git_commit = Some("abc123".to_string());
+        config.repo_hash = Some("def456".to_string());
 
-        assert_eq!(config.git_commit, Some("abc123".to_string()));
+        assert_eq!(config.repo_hash, Some("def456".to_string()));
     }
 
     #[test]
     fn test_train_config_git_commit_serialization() {
         let config = TrainConfig {
-            model_path: "/tmp/model".to_string(),
-            dataset_path: "/tmp/dataset".to_string(),
-            batch_size: 32,
-            learning_rate: 0.001,
-            epochs: 10,
-            train_repo_url: None,
-            script_entrypoint: None,
-            dataset_repo_url: None,
-            auth_threshold: 1,
-            enable_auth: false,
-        model_artifact_ref: None,
-            git_commit: Some("f00bar".to_string()),
+            model_artifact: None,
+            repo_hash: Some("f00bar".to_string()),
             dataset_urls: vec![],
-            gpu_compute_capability: None,
-            repo_path: None,
-            training_spawn_cmd: None,
         };
 
         let json = serde_json::to_string(&config);
@@ -112,7 +87,7 @@ mod repo_commit_tests {
         assert!(decoded.is_ok(), "deserialization failed: {:?}", decoded.err());
 
         let parsed = decoded.unwrap();
-        assert_eq!(parsed.git_commit, Some("abc123".to_string()));
+        assert_eq!(parsed.repo_hash, Some("abc123".to_string()));
     }
 
     #[test]

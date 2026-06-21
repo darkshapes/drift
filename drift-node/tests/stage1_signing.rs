@@ -75,8 +75,9 @@ async fn test_repo_commit_signed_with_iroh_key() {
         let _node_info = read_message(&mut recv).await.unwrap();
 
         let config = TrainConfig {
-            train_repo_url: Some(repo_url.clone()),
-            ..Default::default()
+            model_artifact: Some("hf://model".to_string()),
+            repo_hash: Some("abc123".to_string()),
+            dataset_urls: vec![],
         };
         write_message(&mut send, &DriftMessage::TrainConfig(config)).await.unwrap();
 

@@ -52,14 +52,6 @@ impl CoordinatorAuth {
         &self.train_config
     }
 
-    pub fn is_auth_enabled(&self) -> bool {
-        self.train_config.enable_auth
-    }
-
-    pub fn get_threshold(&self) -> usize {
-        self.train_config.auth_threshold
-    }
-
     pub fn expected_nodes(&self) -> Vec<String> {
         self.node_channels.keys().map(|s| s.clone()).collect()
     }
@@ -77,21 +69,17 @@ impl CoordinatorAuth {
         expected_nodes: Vec<String>,
         timeout: Duration,
     ) -> Result<AggregateAuthMessage, CoordinatorAuthError> {
-        if !self.train_config.enable_auth {
-            return Err(CoordinatorAuthError::AuthDisabled);
-        }
-
         if expected_nodes.is_empty() && self.node_channels.is_empty() {
             return Err(CoordinatorAuthError::NoNodesRegistered);
         }
 
-        let threshold = self.train_config.auth_threshold;
         let nodes_to_collect: Vec<String> = if expected_nodes.is_empty() {
             self.node_channels.keys().map(|s| s.clone()).collect()
         } else {
             expected_nodes
         };
 
+        let threshold = nodes_to_collect.len();
         let aggregator = Aggregator::new(nodes_to_collect, threshold, timeout);
         self.aggregator = Some(aggregator);
         let agg_ref = self.aggregator.as_mut().unwrap();
@@ -123,10 +111,6 @@ impl CoordinatorAuth {
         &self,
         agg_msg: &AggregateAuthMessage,
     ) -> Result<(), CoordinatorAuthError> {
-        if !self.train_config.enable_auth {
-            return Err(CoordinatorAuthError::AuthDisabled);
-        }
-
         if self.node_channels.is_empty() {
             return Err(CoordinatorAuthError::NoNodesRegistered);
         }
@@ -144,22 +128,17 @@ impl CoordinatorAuth {
     pub fn log_status(&self) {
         if let Some(agg) = &self.aggregator {
             println!("Auth status: {}/{} signatures collected, need {}",
-           agg.collected_count(),
-                agg.total_nodes(),
-                agg.threshold(),
+            agg.collected_count(),
+            agg.total_nodes(),
+            agg.threshold(),
         );
 
             let missing: Vec<String> = agg.missing_nodes();
             if !missing.is_empty() {
                 println!("  Missing from: {:?}", missing);
             }
-        } else if self.train_config.enable_auth {
-            println!("Auth status: {} nodes registered, threshold {}",
-            self.node_channels.len(),
-            self.train_config.auth_threshold,
-        );
         } else {
-            println!("Auth status: disabled");
+            println!("Auth status: {} nodes registered, threshold = nodes (always enabled)", self.node_channels.len());
         }
     }
 
@@ -178,14 +157,8 @@ impl CoordinatorAuth {
             if !missing.is_empty() {
                 lines.push(format!("  Missing from: {:?}", missing));
             }
-        } else if self.train_config.enable_auth {
-            lines.push(format!(
-                "Auth status: {} nodes registered, threshold {}",
-                self.node_channels.len(),
-                self.train_config.auth_threshold
-            ));
         } else {
-            lines.push("Auth status: disabled".to_string());
+            lines.push(format!("Auth status: {} nodes registered, threshold = nodes (always enabled)", self.node_channels.len()));
         }
 
         lines.join("\n")
@@ -212,49 +185,26 @@ mod tests {
         SignedAuthMessage::sign(msg, keypair).unwrap()
     }
 
-    fn create_train_config(enable_auth: bool, auth_threshold: usize) -> TrainConfig {
+    fn create_test_train_config() -> TrainConfig {
         TrainConfig {
-            enable_auth,
-            auth_threshold,
-            model_path: "/tmp/model".to_string(),
-            dataset_path: "/tmp/dataset".to_string(),
-            batch_size: 32,
-            learning_rate: 0.001,
-            epochs: 10,
-            train_repo_url: Some("https://github.com/example/train".to_string()),
-            script_entrypoint: Some("train.py".to_string()),
-            dataset_repo_url: None,
-            model_artifact_ref: None,
-        dataset_urls: vec![],
-        git_commit: None,
-        gpu_compute_capability: None,
-        repo_path: None,
-        training_spawn_cmd: None,
+            model_artifact: Some("/tmp/model".to_string()),
+            repo_hash: Some("abc123".to_string()),
+            dataset_urls: vec!["https://example.com/data".to_string()],
         }
     }
 
     #[test]
     fn test_coordinator_auth_new() {
-        let config = create_train_config(true, 2);
+        let config = create_test_train_config();
         let auth = CoordinatorAuth::new(config);
 
         assert_eq!(auth.registered_node_count(), 0);
-        assert!(auth.is_auth_enabled());
-        assert_eq!(auth.get_threshold(), 2);
         assert!(!auth.has_aggregator());
     }
 
     #[test]
-    fn test_coordinator_auth_disabled() {
-        let config = create_train_config(false, 2);
-        let auth = CoordinatorAuth::new(config);
-
-        assert!(!auth.is_auth_enabled());
-    }
-
-    #[test]
     fn test_coordinator_auth_register_node() {
-        let config = create_train_config(true, 2);
+        let config = create_test_train_config();
         let mut auth = CoordinatorAuth::new(config);
 
         let (tx, _rx) = mpsc::channel(16);
@@ -266,7 +216,7 @@ mod tests {
 
     #[test]
     fn test_coordinator_auth_register_multiple_nodes() {
-        let config = create_train_config(true, 3);
+        let config = create_test_train_config();
         let mut auth = CoordinatorAuth::new(config);
 
         let (tx1, _rx1) = mpsc::channel(16);
@@ -278,32 +228,30 @@ mod tests {
         auth.register_node("node3".to_string(), tx3);
 
         assert_eq!(auth.registered_node_count(), 3);
-        assert_eq!(auth.get_threshold(), 3);
     }
 
     #[test]
     fn test_coordinator_auth_get_train_config() {
-        let config = create_train_config(true, 3);
+        let config = create_test_train_config();
         let auth = CoordinatorAuth::new(config);
 
         let retrieved = auth.get_train_config();
-        assert_eq!(retrieved.auth_threshold, 3);
-        assert!(retrieved.enable_auth);
+        assert!(retrieved.model_artifact.is_some());
     }
 
     #[tokio::test]
-    async fn test_coordinator_auth_collect_signatures_disabled() {
-        let config = create_train_config(false, 2);
+    async fn test_coordinator_auth_collect_signatures_empty() {
+        let config = create_test_train_config();
         let mut auth = CoordinatorAuth::new(config);
 
         let result = auth.collect_signatures(vec![], Duration::from_secs(30)).await;
 
-        assert!(matches!(result, Err(CoordinatorAuthError::AuthDisabled)));
+        assert!(matches!(result, Err(CoordinatorAuthError::NoNodesRegistered)));
     }
 
     #[tokio::test]
     async fn test_coordinator_auth_collect_signatures_no_nodes() {
-        let config = create_train_config(true, 2);
+        let config = create_test_train_config();
         let mut auth = CoordinatorAuth::new(config);
 
         let result = auth.collect_signatures(vec![], Duration::from_secs(30)).await;
@@ -313,7 +261,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_coordinator_auth_collect_signatures_timeout() {
-        let config = create_train_config(true, 2);
+        let config = create_test_train_config();
         let mut auth = CoordinatorAuth::new(config);
 
         let (tx1, _rx1) = mpsc::channel(16);
@@ -328,24 +276,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_coordinator_auth_broadcast_disabled() {
-        let config = create_train_config(false, 2);
-        let auth = CoordinatorAuth::new(config);
-
-        let msg = AuthMessage::with_values("coordinator", "abc123", 1000u64, 42u64, 1u64);
-        let mut rng = drift_auth::CryptoOsRng::new();
-        let kp = SigningKey::generate(&mut rng);
-        let signed = create_signed_message("coordinator", &msg, &kp);
-
-        let agg = AggregateAuthMessage::create(vec![signed], 1, 1).unwrap();
-        let result = auth.broadcast_aggregate(&agg).await;
-
-        assert!(matches!(result, Err(CoordinatorAuthError::AuthDisabled)));
-    }
-
-    #[tokio::test]
     async fn test_coordinator_auth_broadcast_no_nodes() {
-        let config = create_train_config(true, 2);
+        let config = create_test_train_config();
         let auth = CoordinatorAuth::new(config);
 
         let msg = AuthMessage::with_values("coordinator", "abc123", 1000u64, 42u64, 1u64);
@@ -361,7 +293,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_coordinator_auth_broadcast_success() {
-        let config = create_train_config(true, 2);
+        let config = create_test_train_config();
         let mut auth = CoordinatorAuth::new(config);
 
         let (tx1, mut rx1) = mpsc::channel(16);
@@ -391,16 +323,8 @@ mod tests {
     }
 
     #[test]
-    fn test_coordinator_auth_log_status_disabled() {
-        let config = create_train_config(false, 2);
-        let auth = CoordinatorAuth::new(config);
-        let status = auth.log_status_string();
-        assert!(status.contains("disabled"));
-    }
-
-    #[test]
     fn test_coordinator_auth_log_status_no_aggregator() {
-        let config = create_train_config(true, 2);
+        let config = create_test_train_config();
         let mut auth = CoordinatorAuth::new(config);
 
         let (tx, _rx) = mpsc::channel(16);
@@ -408,12 +332,12 @@ mod tests {
 
         let status = auth.log_status_string();
         assert!(status.contains("1 nodes registered"));
-        assert!(status.contains("threshold 2"));
+        assert!(status.contains("always enabled"));
     }
 
     #[test]
     fn test_coordinator_auth_log_status_with_aggregator() {
-        let config = create_train_config(true, 3);
+        let config = create_test_train_config();
         let mut auth = CoordinatorAuth::new(config);
 
         let (tx1, _rx1) = mpsc::channel(16);
@@ -442,7 +366,7 @@ mod tests {
 
     #[test]
     fn test_coordinator_auth_log_status_missing_nodes() {
-        let config = create_train_config(true, 2);
+        let config = create_test_train_config();
         let mut auth = CoordinatorAuth::new(config);
 
         let (tx1, _rx1) = mpsc::channel(16);
@@ -472,7 +396,7 @@ mod tests {
 
     #[test]
     fn test_coordinator_auth_rotate_keys_not_implemented() {
-        let config = create_train_config(true, 2);
+        let config = create_test_train_config();
         let mut auth = CoordinatorAuth::new(config);
 
         let result = auth.rotate_coordinator_keys();
@@ -481,7 +405,7 @@ mod tests {
 
     #[test]
     fn test_coordinator_auth_multiple_registrations_same_node() {
-        let config = create_train_config(true, 2);
+        let config = create_test_train_config();
         let mut auth = CoordinatorAuth::new(config);
 
         let (tx1, _rx1) = mpsc::channel(16);
@@ -495,7 +419,7 @@ mod tests {
 
     #[test]
     fn test_coordinator_auth_expected_nodes() {
-        let config = create_train_config(true, 3);
+        let config = create_test_train_config();
         let mut auth = CoordinatorAuth::new(config);
 
         let (tx1, _rx1) = mpsc::channel(16);
@@ -512,7 +436,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_coordinator_auth_full_flow() {
-        let config = create_train_config(true, 2);
+        let config = create_test_train_config();
         let mut auth = CoordinatorAuth::new(config);
 
         let (tx1, mut rx1) = mpsc::channel(16);
@@ -523,8 +447,6 @@ mod tests {
         auth.register_node("n1".to_string(), tx2);
         auth.register_node("n2".to_string(), tx3);
 
-        assert!(auth.is_auth_enabled());
-        assert_eq!(auth.get_threshold(), 2);
         assert_eq!(auth.registered_node_count(), 3);
 
         let status = auth.log_status_string();

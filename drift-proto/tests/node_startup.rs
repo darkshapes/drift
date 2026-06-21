@@ -25,22 +25,9 @@ fn test_load_cached_state_returns_last_checkpoint() {
     cleanup(&path);
 
     let config = TrainConfig {
-        model_path: "/models/test".to_string(),
-        dataset_path: "/data/test".to_string(),
-        batch_size: 32u32,
-        learning_rate: 0.001f64,
-        epochs: 10u32,
-        train_repo_url: None,
-        script_entrypoint: None,
-        dataset_repo_url: None,
-        model_artifact_ref: None,
-        enable_auth: false,
-        auth_threshold: 3,
-        git_commit: None,
-        dataset_urls: vec![],
-        gpu_compute_capability: None,
-        repo_path: None,
-        training_spawn_cmd: None,
+        model_artifact: Some("/models/test".to_string()),
+        repo_hash: Some("abc123".to_string()),
+        dataset_urls: vec!["/data/test".to_string()],
     };
 
     let shard = ShardAssignment {
