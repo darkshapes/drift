@@ -228,7 +228,8 @@ impl fmt::Display for DriftMessage {
         match self {
             Self::NodeInfo(info) => write!(f, "NodeInfo({})", info),
             Self::TrainConfig(c) => {
-                write!(f, "TrainConfig(epochs={}, batch={})", c.epochs, c.batch_size)
+                let hash = c.repo_hash.as_ref().map(|s| s.as_str()).unwrap_or("");
+                write!(f, "TrainConfig(hash={}, urls={})", hash, c.dataset_urls.join(","))
             }
             Self::ShardAssignment(s) => {
                 write!(f, "ShardAssignment(node={}, idx={})", &s.node_id[..12.min(s.node_id.len())], s.shard_index)
@@ -257,59 +258,17 @@ impl fmt::Display for DriftMessage {
 /// Training configuration sent from coordinator to nodes.
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TrainConfig {
-    // Existing fields
-    pub model_path: String,
-    pub dataset_path: String,
-    pub batch_size: u32,
-    pub learning_rate: f64,
-    pub epochs: u32,
-
-    // New fields for distributed repo-based training
-    /// URL of the repository containing the training script.
-    /// Node should clone this and run the specified entrypoint.
+    // Repository-based model source (HF ID, local path, or URL)
     #[serde(default)]
-    pub train_repo_url: Option<String>,
+    pub model_artifact: Option<String>,
 
-    /// Path within the cloned train_repo to execute (e.g., "train.py").
-    /// If not set, falls back to existing --script CLI argument behavior.
+    /// Git hash of the verified repository state
     #[serde(default)]
-    pub script_entrypoint: Option<String>,
+    pub repo_hash: Option<String>,
 
-    /// Discovered local path to pre-provisioned repo (for venv activation).
-    #[serde(default)]
-    pub repo_path: Option<String>,
-
-    /// Resolved spawn command with venv activation (e.g., "source .venv/bin/activate && ...").
-    #[serde(default)]
-    pub training_spawn_cmd: Option<String>,
-
-    /// HuggingFace repo ID or Git URL for the dataset.
-    /// Node should download/clone this before starting training.
-    #[serde(default)]
-    pub dataset_repo_url: Option<String>,
-
-    /// URLs for datasets (multiple datasets supported).
+    /// URLs for datasets (optional - can be empty)
     #[serde(default)]
     pub dataset_urls: Vec<String>,
-
-    /// Optional path within dataset_repo for fine-tuning from local base model.
-    #[serde(default)]
-    pub model_artifact_ref: Option<String>,
-
-   /// Enable multi-signature authentication
-    #[serde(default)]
-    pub enable_auth: bool,
-
-    /// Threshold for signature aggregation (e.g., 3 for 3-of-n).
-    pub auth_threshold: usize,
-
-    /// Agreed-upon git commit hash (set by coordinator after verification).
-    #[serde(default)]
-    pub git_commit: Option<String>,
-
-    /// GPU compute capability (e.g., 8.9 for CUDA 8.9).
-    #[serde(default)]
-    pub gpu_compute_capability: Option<f64>,
 }
 
 /// Shard assignment for a specific node.

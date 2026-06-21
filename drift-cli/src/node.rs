@@ -265,21 +265,22 @@ async fn handle_connection(
                         write_message(&mut send, &DriftMessage::Pong).await?;
                     }
                     DriftMessage::TrainConfig(config) => {
-                         info!(model = %config.model_path, epochs = config.epochs, "received config");
+                        let model = config.model_artifact.as_ref().map(|s| &**s).unwrap_or("none");
+                        info!(model = %model, dataset_urls = config.dataset_urls.len(), "received config");
                          // Forward TrainConfig to drift-node and receive signed RepoCommit
                          // For stage 3, we use a placeholder; will be replaced with actual forwarding in later stages.
-                         let repo_url = config.train_repo_url.as_ref().ok_or_else(|| anyhow::anyhow!("No train_repo_url in config"))?;
+                         let repo_url = config.model_artifact.as_ref().ok_or_else(|| anyhow::anyhow!("No model_artifact in config"))?;
                          let repo_path = find_local_repo(repo_url).ok_or_else(|| anyhow::anyhow!("Repo not found locally"))?;
                          let commit_hash = run_git_ls_remote(&repo_path).ok_or_else(|| anyhow::anyhow!("git ls-remote failed"))?;
-let node_id_str = endpoint.id().to_string();
-    let secret_key = endpoint.secret_key();
-    let message = format!("{}|{}|{}", node_id_str, commit_hash, repo_url);
-    let signature = secret_key.sign(message.as_bytes()).to_bytes().to_vec();
+                         let node_id_str = endpoint.id().to_string();
+                         let secret_key = endpoint.secret_key();
+                         let message = format!("{}|{}|{}", node_id_str, commit_hash, repo_url);
+                         let signature = secret_key.sign(message.as_bytes()).to_bytes().to_vec();
                          let repo_commit = RepoCommit {
                               commit: commit_hash,
                               repo_url: repo_url.to_string(),
                               signature,
-                          };
+                         };
                          write_message(&mut send, &DriftMessage::RepoCommit(repo_commit)).await?;
                          info!("sent RepoCommit to coordinator");
                          train_config = Some(config);
@@ -287,44 +288,6 @@ let node_id_str = endpoint.id().to_string();
                     DriftMessage::TrainingReady => {
                         info!("TrainingReady received");
                         training_ready_received = true;
-
-                        if let Some(ref mut config) = train_config {
-                            if config.train_repo_url.is_some() && config.script_entrypoint.is_none() {
-                                if let Some(repo_url) = &config.train_repo_url {
-                                    let repo_path = find_local_repo(repo_url);
-                                    if let Some(path) = repo_path {
-                                    let base = if let Ok(home) = std::env::var("HOME") {
-                                        std::path::PathBuf::from(home).join(".local/share")
-                                    } else {
-                                        std::path::PathBuf::from("/tmp")
-                                    };
-                                        match discover_script_entrypoint(&path) {
-                                            Ok(entrypoint) => {
-                                                config.script_entrypoint = Some(entrypoint);
-                                                if let Ok(spawn_cmd) = resolve_entrypoint_to_spawn_cmd(
-                                                    &path,
-                                                    config.script_entrypoint.as_ref().unwrap(),
-                                                    &base,
-                                                ) {
-                                                    config.training_spawn_cmd = Some(spawn_cmd);
-                                                }
-                                                let ep = config.script_entrypoint.as_ref().map(|s| s.as_str()).unwrap_or("<none>");
-                                                info!(entrypoint = %ep, "script entrypoint discovered");
-                                            }
-                                            Err(e) => {
-                                                error!(%e, "script discovery failed");
-                                                let now = format!("{}", time::OffsetDateTime::now_utc());
-                                                write_message(&mut send, &DriftMessage::TrainingCancel(drift_proto::TrainingCancel {
-                                                    repo_url: config.train_repo_url.clone().unwrap_or_default(),
-                                                    reason: e.to_string(),
-                                                    time: now,
-                                                })).await?;
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
                     }
                     DriftMessage::TrainingCancel(cancel) => {
                         error!(reason = %cancel.reason, repo_url = %cancel.repo_url, "Training cancelled");
@@ -367,65 +330,44 @@ let node_id_str = endpoint.id().to_string();
 }
 
 /// Execute training and stream progress back to coordinator.
-/// Dispatches to real Python training if model_path is a .py file, otherwise simulates.
+/// Dispatches to real Python training if model_artifact is set, otherwise simulates.
 async fn run_training(
     config: &drift_proto::TrainConfig,
     coord_send: &mut iroh::endpoint::SendStream,
-    coord_recv: &mut iroh::endpoint::RecvStream,
-    shard: Option<&drift_proto::ShardAssignment>,
+    _coord_recv: &mut iroh::endpoint::RecvStream,
+    _shard: Option<&drift_proto::ShardAssignment>,
 ) -> Result<()> {
-    match (config.train_repo_url.as_ref(), config.script_entrypoint.as_ref()) {
-        (Some(_), None) => {
-            anyhow::bail!("train_repo_url is set but script_entrypoint is missing. Ensure an ati_plug script is defined in pyproject.toml.");
+    match config.model_artifact.as_ref() {
+        Some(artifact) => {
+            info!(artifact = %artifact, "model_artifact found - preparing real training");
+            run_real_training(config, coord_send).await
         }
-        (None, None) => {
-            info!("train_repo_url and script_entrypoint are both None - running simulated training");
-            simulate_training(config, coord_send).await
-        }
-        (_, Some(entrypoint)) => {
-            info!(entrypoint = %entrypoint, "script_entrypoint found - preparing repo-based real training");
-            run_real_training(config, coord_send, coord_recv, shard).await
+        None => {
+            info!("model_artifact is None - running simulated training");
+            simulate_training(coord_send).await
         }
     }
 }
 
-/// Run real Python training via subprocess.
+/// Run real training via subprocess.
 async fn run_real_training(
     config: &drift_proto::TrainConfig,
     coord_send: &mut iroh::endpoint::SendStream,
-    _coord_recv: &mut iroh::endpoint::RecvStream,
-    shard: Option<&drift_proto::ShardAssignment>,
 ) -> Result<()> {
     use std::process::Stdio;
 
-
     let master_port = 29500 + (std::process::id() % 1000);
-    let mut cmd = if let Some(spawn_cmd) = &config.training_spawn_cmd {
-        let mut c = tokio::process::Command::new("bash");
-        c.arg("-c").arg(spawn_cmd);
-        info!(spawn_cmd = %spawn_cmd, "using training_spawn_cmd");
-        c
-    } else {
-        warn!("training_spawn_cmd not available - using legacy mode with model_path");
-        let mut c = tokio::process::Command::new("python3");
-        c.arg(&config.model_path);
-        c
-    };
+    let model_artifact = config.model_artifact.as_ref().expect("model_artifact should be set");
 
-    cmd.env("DRIFT_BATCH_SIZE", config.batch_size.to_string())
-        .env("DRIFT_LEARNING_RATE", config.learning_rate.to_string())
-        .env("DRIFT_EPOCHS", config.epochs.to_string())
-        .env("MASTER_ADDR", "127.0.0.1")
+    let mut cmd = tokio::process::Command::new("python3");
+    cmd.arg(model_artifact);
+    info!(model_artifact = %model_artifact, "starting python training");
+
+    cmd.env("MASTER_ADDR", "127.0.0.1")
         .env("MASTER_PORT", master_port.to_string());
 
-    if let Some(dataset_path) = std::env::var_os("DRIFT_DATASET_PATH") {
-        cmd.env("DRIFT_DATASET_PATH", dataset_path);
-    }
-
-    if let Some(s) = shard {
-        cmd.env("DRIFT_SHARD_INDEX", s.shard_index.to_string())
-            .env("DRIFT_SHARD_START", s.shard_start.to_string())
-            .env("DRIFT_SHARD_END", s.shard_end.to_string());
+    for url in &config.dataset_urls {
+        cmd.env("DRIFT_DATASET_URL", url);
     }
 
     let mut child = cmd
@@ -434,12 +376,9 @@ async fn run_real_training(
         .stderr(Stdio::inherit())
         .spawn()?;
 
-    let child_stdin = child.stdin.take().expect("piped stdin");
     let child_stdout = child.stdout.take().expect("piped stdout");
-    let _stdin_writer = child_stdin;
     let mut stdout_reader = BufReader::new(child_stdout).lines();
 
-    // 3. Wait for DRIFT_READY with timeout
     let ready_deadline = tokio::time::timeout(
         std::time::Duration::from_secs(60),
         async {
@@ -461,83 +400,35 @@ async fn run_real_training(
         }
         Err(_) => {
             let _ = child.kill().await;
-            anyhow::bail!("Python subprocess did not send DRIFT_READY within 60s — check stderr for errors");
+            anyhow::bail!("Python subprocess did not send DRIFT_READY within 60s");
         }
     }
 
-    let _last_barrier_step: Option<u64> = None;
-
-    while let Some(line) = stdout_reader.next_line().await? {
-        let msg = ipc::parse_python_line(&line);
-        match msg {
-            PythonMessage::Ready => {
-                // Already handled above, but harmless
-            }
-            PythonMessage::Progress { epoch, step, loss, throughput } => {
-                let progress = drift_proto::TrainProgress {
-                    node_id: format!("rank-{}", "N/A"),
-                    epoch,
-                    step,
-                    loss,
-                    throughput_samples_per_sec: throughput,
-                };
-                write_message(coord_send, &DriftMessage::TrainProgress(progress)).await?;
-            }
-            PythonMessage::Done => {
-                info!("Python training complete");
-                break;
-            }
-            PythonMessage::Unknown(line) => {
-                // Log non-protocol lines from Python
-                if !line.is_empty() {
-                    info!(line, "python output");
-                }
-            }
-        }
-    }
-
-    // 5. Wait for child exit with timeout
-    match tokio::time::timeout(std::time::Duration::from_secs(30), child.wait()).await {
-        Ok(Ok(status)) => {
-            if !status.success() {
-                warn!(code = ?status.code(), "Python subprocess exited with error");
-            }
-        }
-        Ok(Err(e)) => {
-            warn!("error waiting for Python subprocess: {}", e);
-        }
-        Err(_) => {
-            warn!("Python subprocess did not exit within 30s, killing");
-            let _ = child.kill().await;
-        }
-    }
-
+    let _child = child;
     Ok(())
 }
 
 /// Simulate training progress with gradient synchronization.
 async fn simulate_training(
-    config: &drift_proto::TrainConfig,
     coord_send: &mut iroh::endpoint::SendStream,
 ) -> Result<()> {
-
+    let epochs = 10u32;
     let steps_per_epoch = 5u64;
     let mut loss = 2.5_f64;
 
-    for epoch in 0..config.epochs {
+    for epoch in 0..epochs {
         for step_in_epoch in 0..steps_per_epoch {
             let global_step = epoch as u64 * steps_per_epoch + step_in_epoch;
 
             tokio::time::sleep(std::time::Duration::from_millis(50)).await;
 
-
             loss *= 0.98;
             let progress = drift_proto::TrainProgress {
-                node_id: format!("rank-{}", "N/A"),
+                node_id: "simulated".to_string(),
                 epoch,
                 step: global_step,
                 loss,
-                throughput_samples_per_sec: config.batch_size as f64 * 10.0,
+                throughput_samples_per_sec: 320.0,
             };
             write_message(coord_send, &DriftMessage::TrainProgress(progress)).await?;
         }

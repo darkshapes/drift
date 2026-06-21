@@ -22,31 +22,18 @@ async fn main() -> Result<()> {
     match cli.command {
         Commands::Join { name } => node::join(name).await,
         Commands::Train {
-            repo,
             peers,
-            script,
-            model_path,
-            dataset_path,
-            dataset,
-            batch_size,
-            learning_rate,
-            epochs,
-            dataset_size,
-            checkpoint_dir,
+            config: _,
+            train_repo_url,
+            model_artifact,
+            dataset_urls,
             resume,
         } => {
             coord::train(
-                repo,
                 peers,
-                script,
-                model_path,
-                dataset_path,
-                dataset,
-                batch_size,
-                learning_rate,
-                epochs,
-                dataset_size,
-                checkpoint_dir,
+                train_repo_url,
+                model_artifact,
+                dataset_urls,
                 resume,
             )
             .await

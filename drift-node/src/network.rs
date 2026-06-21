@@ -63,44 +63,42 @@ pub async fn handle_connection(
                     write_message(&mut send, &DriftMessage::Pong).await?;
                 }
                 DriftMessage::TrainConfig(config) => {
-                    if let Some(ref train_repo_url) = config.train_repo_url {
+                    if let Some(ref model_artifact) = config.model_artifact {
                         let mut hasher = Sha256::new();
-                        hasher.update(train_repo_url.as_bytes());
+                        hasher.update(model_artifact.as_bytes());
                         let result = hasher.finalize();
                         let commit_hash = format!("{:x}", result);
+                        let dataset = config.dataset_urls.first().map(|s| s.as_str()).unwrap_or("none");
                         info!(
-                            model = %config.model_path,
-                            dataset = %config.dataset_path,
-                            epochs = config.epochs,
-                            commit_hash = %commit_hash,
-                            "received training config"
+                            "received training config: model={}, dataset={}, repo_hash={:?}, commit_hash={}",
+                            model_artifact,
+                            dataset,
+                            config.repo_hash,
+                            commit_hash
                         );
                     } else {
                         info!(
-                            model = %config.model_path,
-                            dataset = %config.dataset_path,
-                            epochs = config.epochs,
-                            "received training config"
+                            "received training config: model={:?}, dataset_urls={}",
+                            config.model_artifact,
+                            config.dataset_urls.len()
                         );
                     }
                     cached_config = Some(config);
 
-if let Some(ref train_repo_url) = cached_config.clone() {
-                     tracing::info!("about to get repo_url from train_repo_url");
-                     if let Some(repo_url) = train_repo_url.train_repo_url.clone() {
-                         tracing::info!("repo_url from train_repo_url: {}", &repo_url);
-                         match get_git_commit(&repo_url).await {
-    Ok(commit) => {
-        tracing::info!("repo_url from get_git_commit: {}", &repo_url);
-let secret_key = endpoint.secret_key();
-let message = format!("{}|{}|{}", node_id, commit, repo_url);
-let signature = secret_key.sign(message.as_bytes()).to_bytes().to_vec();
-tracing::info!(signature_len = signature.len(), "signature length");
-let repo_commit = RepoCommit {
-    commit,
-    repo_url,
-    signature,
-};
+                    if let Some(ref model_art) = cached_config.clone() {
+                        if let Some(repo_url) = model_art.model_artifact.clone() {
+                            match get_git_commit(&repo_url).await {
+                                Ok(commit) => {
+                                    tracing::info!("repo_url from get_git_commit: {}", &repo_url);
+                                    let secret_key = endpoint.secret_key();
+                                    let message = format!("{}|{}|{}", node_id, commit, repo_url);
+                                    let signature = secret_key.sign(message.as_bytes()).to_bytes().to_vec();
+                                    tracing::info!(signature_len = signature.len(), "signature length");
+                                    let repo_commit = RepoCommit {
+                                        commit,
+                                        repo_url,
+                                        signature,
+                                    };
                                     write_message(&mut send, &DriftMessage::RepoCommit(repo_commit)).await?;
                                     info!("sent RepoCommit to coordinator");
                                     standby_start = Some(Instant::now());
@@ -150,95 +148,7 @@ let repo_commit = RepoCommit {
                 DriftMessage::TrainingReady => {
                     training_ready_received = true;
                     standby_start = None;
-                    info!("received TrainingReady - discovering script entrypoint");
-                    let repo_url = if let Some(ref config) = cached_config {
-                        config.train_repo_url.clone()
-                    } else {
-                        None
-                    };
-                    if let Some(url) = repo_url {
-                        let home = std::env::var("HOME").unwrap_or_else(|_| "~".to_string());
-                        let base = std::path::PathBuf::from(home).join(".local/share");
-                        match crate::script_discovery::clone_repo_to_drift_cache(&url, &base).await {
-                            Ok(cloned_path) => {
-                                match crate::script_discovery::discover_script_entrypoint(&cloned_path) {
-                                    Ok(entrypoint) => {
-                                        let repo_path_str = cloned_path.display().to_string();
-                                        let spawn_cmd = match crate::script_discovery::resolve_entrypoint_to_spawn_cmd(&cloned_path, &entrypoint, &base) {
-                                            Ok(cmd) => {
-                                                if let Some(activate) = crate::script_discovery::detect_venv_activation(&cloned_path, &base) {
-                                                    info!(venv = %activate, spawn_cmd = %cmd, "discovered script entrypoint with venv");
-                                                } else {
-                                                    info!(spawn_cmd = %cmd, "discovered script entrypoint without venv");
-                                                }
-                                                Some(cmd)
-                                            }
-                                            Err(e) => {
-                                                warn!(error = %e, "failed to resolve spawn command");
-                                                None
-                                            }
-                                        };
-                                        if let Some(ref mut config) = cached_config {
-                                            config.script_entrypoint = Some(entrypoint);
-                                            config.repo_path = Some(repo_path_str);
-                                            if let Some(ref cmd) = spawn_cmd {
-                                                config.training_spawn_cmd = Some(cmd.clone());
-                                            }
-                                        } else {
-                                            let mut new_config = drift_proto::TrainConfig::default();
-                                            new_config.script_entrypoint = Some(entrypoint);
-                                            new_config.repo_path = Some(repo_path_str);
-                                            if let Some(ref cmd) = spawn_cmd {
-                                                new_config.training_spawn_cmd = Some(cmd.clone());
-                                            }
-                                            cached_config = Some(new_config);
-                                        }
-                                    }
-                                    Err(e) => {
-                                        warn!(error = %e, "failed to discover entrypoint");
-                                        let now = std::time::SystemTime::now()
-                                            .duration_since(std::time::SystemTime::UNIX_EPOCH)
-                                            .map(|d| d.as_secs().to_string())
-                                            .unwrap_or_else(|_| "0".to_string());
-                                        let cancel = drift_proto::DriftMessage::TrainingCancel(drift_proto::TrainingCancel {
-                                            reason: format!("entrypoint not found: {}", e),
-                                            time: now,
-                                            repo_url: url,
-                                        });
-                                        write_message(&mut send, &cancel).await?;
-                                        break;
-                                    }
-                                }
-                            }
-                            Err(e) => {
-                                warn!(error = %e, "failed to clone repo");
-                                let now = std::time::SystemTime::now()
-                                    .duration_since(std::time::SystemTime::UNIX_EPOCH)
-                                    .map(|d| d.as_secs().to_string())
-                                    .unwrap_or_else(|_| "0".to_string());
-                                let cancel = drift_proto::DriftMessage::TrainingCancel(drift_proto::TrainingCancel {
-                                    reason: format!("clone failed: {}", e),
-                                    time: now,
-                                    repo_url: url,
-                                });
-                                write_message(&mut send, &cancel).await?;
-                                break;
-                            }
-                        }
-                    } else {
-                        warn!("TrainingReady received without train_repo_url in config");
-                        let now = std::time::SystemTime::now()
-                            .duration_since(std::time::SystemTime::UNIX_EPOCH)
-                            .map(|d| d.as_secs().to_string())
-                            .unwrap_or_else(|_| "0".to_string());
-                        let cancel = drift_proto::DriftMessage::TrainingCancel(drift_proto::TrainingCancel {
-                            reason: "no train_repo_url in config".to_string(),
-                            time: now,
-                            repo_url: "".to_string(),
-                        });
-                        write_message(&mut send, &cancel).await?;
-                        break;
-                    }
+                    info!("received TrainingReady");
                 }
                 DriftMessage::TrainingCancel(cancel) => {
                     error!(
@@ -329,24 +239,17 @@ pub async fn handle_completion(
                 let config = state.train_config.clone();
                 let (progress_tx, _progress_rx) = tokio::sync::mpsc::channel(16);
 
-                let script: String = config.script_entrypoint.as_ref().unwrap_or(&"/tmp/train.py".to_string()).to_string();
-                let gpu_cc = config.gpu_compute_capability.unwrap_or(0.0);
+                let script = "/tmp/train.py";
                 match crate::training::spawn_training_with_progress(
-                    &script,
-                    &config.model_path,
-                    &config.dataset_path,
+                    script,
+                    config.model_artifact.as_ref().map(|s| s.as_str()),
                     &config.dataset_urls,
-                    config.batch_size,
-                    config.learning_rate,
-                    config.epochs,
                     shard.shard_index,
                     shard.shard_start,
                     shard.shard_end,
                     node_id.to_string(),
-                    gpu_cc,
                     progress_tx,
                     Some(state),
-                    config.repo_path.as_ref().map(|p| p.as_str()),
                 ).await {
                     Ok((_child, final_step)) => {
                         println!("training completed at step {}", final_step);

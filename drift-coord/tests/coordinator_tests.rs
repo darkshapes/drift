@@ -20,22 +20,9 @@ fn scenario_node_persists_and_restores_assignment() {
             shard_end: 8000,
         };
         let config = drift_proto::TrainConfig {
-            model_path: "/tmp/model".to_string(),
-            dataset_path: "/tmp/dataset".to_string(),
-            batch_size: 32,
-            learning_rate: 0.001,
-            epochs: 10,
-            train_repo_url: None,
-            script_entrypoint: None,
-            dataset_repo_url: None,
-            auth_threshold: 1,
-            enable_auth: true,
-            model_artifact_ref: None,
-            dataset_urls: vec![],
-            git_commit: None,
-            gpu_compute_capability: None,
-            repo_path: None,
-            training_spawn_cmd: None,
+            model_artifact: Some("/tmp/model".to_string()),
+            repo_hash: Some("abc123".to_string()),
+            dataset_urls: vec!["https://example.com/data".to_string()],
         };
 
         let local_state = LocalShardState {

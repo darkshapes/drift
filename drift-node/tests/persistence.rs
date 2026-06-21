@@ -39,8 +39,8 @@ fn test_node_restart_reloads_checkpoint_progress() {
     cleanup(&cache_path);
 
     let mut config = TrainConfig::default();
-    config.epochs = 5u32;
-    config.batch_size = 64u32;
+    config.model_artifact = Some("hf://model".to_string());
+    config.repo_hash = Some("abc123".to_string());
 
     let state = LocalShardState {
         shard_assignment: ShardAssignment {
@@ -62,7 +62,7 @@ fn test_node_restart_reloads_checkpoint_progress() {
     let restored = loaded.unwrap();
     assert_eq!(restored.last_checkpoint_step, 750u64);
     assert_eq!(restored.completion_percentage, 0.75f32);
-    assert_eq!(restored.train_config.batch_size, 64u32);
+    assert_eq!(restored.train_config.model_artifact, Some("hf://model".to_string()));
 
     cleanup(&cache_path);
 }

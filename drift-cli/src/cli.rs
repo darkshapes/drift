@@ -23,27 +23,20 @@ pub enum Commands {
     #[clap(name = "train")]
     Train {
         #[arg(long)]
-        repo: Option<String>,
-        #[arg(long, value_delimiter = ',')]
         peers: Vec<String>,
+
+        #[arg(long, default_value = "train.yaml")]
+        config: String,
+
         #[arg(long)]
-        script: Option<String>,
-        #[arg(long, default_value = "model.safetensors")]
-        model_path: String,
-        #[arg(long, default_value = "data/")]
-        dataset_path: String,
+        train_repo_url: Option<String>,
+
         #[arg(long)]
-        dataset: Vec<String>,
-        #[arg(long, default_value = "32")]
-        batch_size: u32,
-        #[arg(long, default_value = "0.001")]
-        learning_rate: f64,
-        #[arg(long, default_value = "10")]
-        epochs: u32,
-        #[arg(long, default_value = "1000000")]
-        dataset_size: u64,
-        #[arg(long, default_value = "checkpoints/")]
-        checkpoint_dir: String,
+        model_artifact: Option<String>,
+
+        #[arg(long, value_delimiter = ',')]
+        dataset_urls: Vec<String>,
+
         #[arg(long, default_value = "false")]
         resume: bool,
     },

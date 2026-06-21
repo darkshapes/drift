@@ -6,14 +6,14 @@ Step-by-step guide derived from session-2026-05-13-clarifications.md
 
 ## Proto Layer (`drift-proto/src/lib.rs`)
 
-| #   | Task                                                                                                                   | Completion %                                          |
-| --- | ---------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------- |
-| 1   | `LocalShardState` struct + impl `local_cache_path/save_to_disk/load_from_disk`                                         | **100%** (lines 143-184)                              |
-| 2   | `CoordEndpointCache` struct + impl `cache_path`                                                                        | **100%** (struct line 186, impl lines 192-198)        |
-| 3   | `WorkResponse` enum (`NoWork`, `MoreWork { assignment }`) — if using dedicated response type                           | **100%** (not needed; inline in DriftMessage instead) |
-| 4   | New `DriftMessage` variants: `AskForMoreWork`, `NoMoreWork`, `AssignNext(ShardAssignment)`                             | **100%** (lines 330, 343-345)                         |
-| 5   | Add `Display` impl for new message variants                                                                            | **100%** (lines 242-244)                              |
-| 6   | Extend `TrainConfig` with repo fields: `train_repo_url`, `script_entrypoint`, `dataset_repo_url`, `model_artifact_ref` | **100%** (lines 262-277)                              |
+| #   | Task                                                                                                                                             | Completion %                                          |
+| --- | ------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------- |
+| 1   | `LocalShardState` struct + impl `local_cache_path/save_to_disk/load_from_disk`                                                                   | **100%** (lines 143-184)                              |
+| 2   | `CoordEndpointCache` struct + impl `cache_path`                                                                                                  | **100%** (struct line 186, impl lines 192-198)        |
+| 3   | `WorkResponse` enum (`NoWork`, `MoreWork { assignment }`) — if using dedicated response type                                                     | **100%** (not needed; inline in DriftMessage instead) |
+| 4   | New `DriftMessage` variants: `AskForMoreWork`, `NoMoreWork`, `AssignNext(ShardAssignment)`                                                       | **100%** (lines 330, 343-345)                         |
+| 5   | Add `Display` impl for new message variants                                                                                                      | **100%** (lines 242-244)                              |
+| 6   | Extend `TrainConfig` with repo fields: `train_repo_url`, `script_entrypoint`, `dataset_repo_url`, `.opencode/plans/trainconfig-refactor.md _ref` | **100%** (lines 262-277)                              |
 
 <!-- Proto layer subtotal: **100%** ✓ -->
 

@@ -91,29 +91,22 @@ async fn join(name: Option<String>) -> Result<()> {
                     let shard = &cached.shard_assignment;
                     println!("  shard {} [{}, {})", shard.shard_index, shard.shard_start, shard.shard_end);
                     let config = &cached.train_config;
-                    println!("  config: epochs={}, batch={}", config.epochs, config.batch_size);
+                    println!("  config: model_artifact={:?}, dataset_urls={}", config.model_artifact, config.dataset_urls.len());
                     info!(step = cached.last_checkpoint_step, "will resume from checkpoint");
 
-                    let script: String = config.script_entrypoint.as_ref().unwrap_or(&"/tmp/train.py".to_string()).to_string();
+                    let script = "/tmp/train.py";
                     let (progress_tx, _progress_rx) = mpsc::channel(16);
-                    let gpu_cc = config.gpu_compute_capability.unwrap_or(0.0);
 
                     match training::spawn_training_with_progress(
-                        &script,
-                        &config.model_path,
-                        &config.dataset_path,
+                        script,
+                        config.model_artifact.as_ref().map(|s| s.as_str()),
                         &config.dataset_urls,
-                        config.batch_size,
-                        config.learning_rate,
-                        config.epochs,
                         shard.shard_index,
                         shard.shard_start,
                         shard.shard_end,
                         node_id_str.clone(),
-                        gpu_cc,
                         progress_tx,
                         Some(cached.clone()),
-                        config.repo_path.as_ref().map(|p| p.as_str()),
                     ).await {
                         Ok((_child, final_step)) => {
                             println!("training completed at step {}", final_step);

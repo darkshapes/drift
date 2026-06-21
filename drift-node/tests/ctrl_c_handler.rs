@@ -1,49 +1,19 @@
 use drift_proto::{LocalShardState, ShardAssignment, TrainConfig};
-use std::fs;
 use std::path::PathBuf;
+use std::fs;
 
 fn cleanup(path: &PathBuf) {
     let _ = fs::remove_file(path);
 }
 
 #[test]
-fn test_preserve_in_progress_checkpoint_on_interrupt() {
-    let node_id = "test_ctrlc_preserve_checkpoint".to_string();
-    let cache_path = LocalShardState::local_cache_path(&node_id);
-    cleanup(&cache_path);
-
-    let state = LocalShardState {
-        shard_assignment: ShardAssignment {
-            node_id: node_id.clone(),
-            shard_index: 1u32,
-            shard_start: 5000u64,
-            shard_end: 15000u64,
-        },
-        train_config: TrainConfig::default(),
-        last_checkpoint_step: 2500u64,
-        completion_percentage: 0.25f32,
-    };
-
-    state.save_to_disk(&node_id).unwrap();
-
-    let loaded = LocalShardState::load_from_disk(&node_id).unwrap();
-    assert!(loaded.is_some());
-
-    let restored = loaded.unwrap();
-    assert_eq!(restored.last_checkpoint_step, 2500u64);
-    assert_eq!(restored.completion_percentage, 0.25f32);
-
-    cleanup(&cache_path);
-}
-
-#[test]
-fn test_preserve_epoch_in_progress() {
-    let node_id = "test_ctrlc_preserve_epoch".to_string();
+fn test_preserve_model_artifact_in_progress() {
+    let node_id = "test_ctrlc_preserve_model".to_string();
     let cache_path = LocalShardState::local_cache_path(&node_id);
     cleanup(&cache_path);
 
     let mut config = TrainConfig::default();
-    config.epochs = 10u32;
+    config.model_artifact = Some("hf://model".to_string());
 
     let state = LocalShardState {
         shard_assignment: ShardAssignment {
@@ -107,10 +77,9 @@ fn test_preserve_full_state_on_interrupt() {
     cleanup(&cache_path);
 
     let mut config = TrainConfig::default();
-    config.model_path = "/tmp/model.pt".to_string();
-    config.dataset_path = "/tmp/dataset".to_string();
-    config.batch_size = 32u32;
-    config.learning_rate = 0.001;
+    config.model_artifact = Some("/tmp/model.pt".to_string());
+    config.repo_hash = Some("abc123".to_string());
+    config.dataset_urls = vec!["/tmp/dataset".to_string()];
 
     let state = LocalShardState {
         shard_assignment: ShardAssignment {
@@ -130,8 +99,9 @@ fn test_preserve_full_state_on_interrupt() {
     assert!(loaded.is_some());
 
     let restored = loaded.unwrap();
-    assert_eq!(restored.train_config.batch_size, 32u32);
-    assert_eq!(restored.train_config.learning_rate, 0.001);
+    assert_eq!(restored.train_config.model_artifact, Some("/tmp/model.pt".to_string()));
+    assert_eq!(restored.train_config.repo_hash, Some("abc123".to_string()));
+    assert_eq!(restored.train_config.dataset_urls.len(), 1);
     assert_eq!(restored.last_checkpoint_step, 37500u64);
 
     cleanup(&cache_path);

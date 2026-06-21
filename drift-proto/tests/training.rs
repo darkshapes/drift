@@ -67,7 +67,7 @@ async fn test_training_pipeline() {
 
         // Simulate training: stream progress back
         let mut loss = 2.5f64;
-        for epoch in 0..config.epochs {
+        for epoch in 0..epochs {
             for step in 0..steps_per_epoch {
                 loss *= 0.9;
                 write_message(
@@ -110,23 +110,10 @@ async fn test_training_pipeline() {
     write_message(
         &mut send,
         &DriftMessage::TrainConfig(TrainConfig {
-            model_path: "model.pt".to_string(),
-            dataset_path: "data/".to_string(),
-            batch_size: 32,
-            learning_rate: 0.001,
-            epochs,
-        train_repo_url: None,
-        script_entrypoint: None,
-        dataset_repo_url: None,
-        model_artifact_ref: None,
-        enable_auth: false,
-        auth_threshold: 3,
-        git_commit: None,
-        dataset_urls: vec![],
-        gpu_compute_capability: None,
-        repo_path: None,
-        training_spawn_cmd: None,
-    }),
+            model_artifact: Some("local://model.pt".to_string()),
+            repo_hash: Some("abc123".to_string()),
+            dataset_urls: vec!["data/".to_string()],
+        }),
     )
     .await
     .expect("write config");

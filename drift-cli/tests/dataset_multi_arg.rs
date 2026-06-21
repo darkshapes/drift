@@ -3,12 +3,12 @@ use drift_cli::{Cli, Commands};
 
 #[test]
 fn test_cli_dataset_single_arg() {
-    let args = vec!["drift", "train", "--dataset", "https://huggingface.co/datasets/user/data"];
+    let args = vec!["drift", "train", "--dataset-urls", "https://huggingface.co/datasets/user/data"];
     let cli = Cli::try_parse_from(args).unwrap();
     match cli.command {
-        Commands::Train { dataset, .. } => {
-            assert_eq!(dataset.len(), 1);
-            assert_eq!(dataset[0], "https://huggingface.co/datasets/user/data");
+        Commands::Train { dataset_urls, .. } => {
+            assert_eq!(dataset_urls.len(), 1);
+            assert_eq!(dataset_urls[0], "https://huggingface.co/datasets/user/data");
         }
         _ => panic!("expected Train command"),
     }
@@ -19,20 +19,20 @@ fn test_cli_dataset_multiple_args() {
     let args = vec![
         "drift",
         "train",
-        "--dataset",
+        "--dataset-urls",
         "https://huggingface.co/datasets/user/data1",
-        "--dataset",
+        "--dataset-urls",
         "https://huggingface.co/datasets/user/data2",
-        "--dataset",
+        "--dataset-urls",
         "/local/datasets/data3",
     ];
     let cli = Cli::try_parse_from(args).unwrap();
     match cli.command {
-        Commands::Train { dataset, .. } => {
-            assert_eq!(dataset.len(), 3);
-            assert_eq!(dataset[0], "https://huggingface.co/datasets/user/data1");
-            assert_eq!(dataset[1], "https://huggingface.co/datasets/user/data2");
-            assert_eq!(dataset[2], "/local/datasets/data3");
+        Commands::Train { dataset_urls, .. } => {
+            assert_eq!(dataset_urls.len(), 3);
+            assert_eq!(dataset_urls[0], "https://huggingface.co/datasets/user/data1");
+            assert_eq!(dataset_urls[1], "https://huggingface.co/datasets/user/data2");
+            assert_eq!(dataset_urls[2], "/local/datasets/data3");
         }
         _ => panic!("expected Train command"),
     }
@@ -43,8 +43,8 @@ fn test_cli_dataset_empty() {
     let args = vec!["drift", "train"];
     let cli = Cli::try_parse_from(args).unwrap();
     match cli.command {
-        Commands::Train { dataset, .. } => {
-            assert!(dataset.is_empty());
+        Commands::Train { dataset_urls, .. } => {
+            assert!(dataset_urls.is_empty());
         }
         _ => panic!("expected Train command"),
     }
@@ -55,26 +55,22 @@ fn test_cli_dataset_with_other_args() {
     let args = vec![
         "drift",
         "train",
-        "--repo",
+        "--train-repo-url",
         "https://github.com/user/repo",
-        "--dataset",
+        "--dataset-urls",
         "https://huggingface.co/datasets/user/data1",
-        "--dataset",
+        "--dataset-urls",
         "https://huggingface.co/datasets/user/data2",
-        "--epochs",
-        "20",
     ];
     let cli = Cli::try_parse_from(args).unwrap();
     match cli.command {
         Commands::Train {
-            repo,
-            dataset,
-            epochs,
+            train_repo_url,
+            dataset_urls,
             ..
         } => {
-            assert_eq!(dataset.len(), 2);
-            assert!(repo.is_some());
-            assert_eq!(epochs, 20u32);
+            assert_eq!(dataset_urls.len(), 2);
+            assert!(train_repo_url.is_some());
         }
         _ => panic!("expected Train command"),
     }
@@ -85,17 +81,17 @@ fn test_cli_dataset_order_independence() {
     let args1 = vec![
         "drift",
         "train",
-        "--dataset",
+        "--dataset-urls",
         "https://example.com/a",
-        "--dataset",
+        "--dataset-urls",
         "https://example.com/b",
     ];
     let args2 = vec![
         "drift",
         "train",
-        "--dataset",
+        "--dataset-urls",
         "https://example.com/b",
-        "--dataset",
+        "--dataset-urls",
         "https://example.com/a",
     ];
 
@@ -103,7 +99,7 @@ fn test_cli_dataset_order_independence() {
     let cli2 = Cli::try_parse_from(args2).unwrap();
 
     match (cli1.command, cli2.command) {
-        (Commands::Train { dataset: d1, .. }, Commands::Train { dataset: d2, .. }) => {
+        (Commands::Train { dataset_urls: d1, .. }, Commands::Train { dataset_urls: d2, .. }) => {
             assert_eq!(d1.len(), 2);
             assert_eq!(d2.len(), 2);
         }
