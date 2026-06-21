@@ -37,6 +37,7 @@ fn scenario_node_persists_and_restores_assignment() {
             repo_path: None,
             env_file: None,
             training_spawn_cmd: None,
+            env_vars: None,
         };
 
         let local_state = LocalShardState {
@@ -96,7 +97,7 @@ fn scenario_no_shards_remaining_returns_no_more_work() {
 fn scenario_only_one_gets_each_failed_shard_reassignment() {
     temp_env::with_var("HOME", Some("/tmp/simultaneous-request-test"), || {
         let reg_path = drift_coord::peer_registry::RegistryState::state_path();
-        if let Some(parent) = reg_path.parent() {
+        if let Some(_parent) = reg_path.parent() {
             std::fs::create_dir_all(reg_path.parent().unwrap()).unwrap();
         }
 
@@ -117,7 +118,7 @@ fn scenario_only_one_gets_each_failed_shard_reassignment() {
 
 #[test]
 fn scenario_three_nodes_request_four_failed_shards_all_assigned_in_order() {
-    use drift_coord::peer_registry::{PeerRegistry, NodeStatus};
+    use drift_coord::peer_registry::PeerRegistry;
 
     temp_env::with_var("HOME", Some("/tmp/multi-failed-shard-reassign"), || {
         let mut registry = PeerRegistry::new_with_pending_shards(4);
@@ -149,7 +150,7 @@ fn scenario_three_nodes_request_four_failed_shards_all_assigned_in_order() {
 #[test]
 fn scenario_coordinator_restart_recovers_peer_state() {
     use drift_proto::TrainProgress;
-    use drift_coord::peer_registry::{PeerRegistry, PeerEntry};
+    use drift_coord::peer_registry::PeerRegistry;
 
     temp_env::with_var("HOME", Some("/tmp/coord-restart-recovery-test"), || {
         if let Some(parent) = drift_coord::peer_registry::RegistryState::state_path().parent() {

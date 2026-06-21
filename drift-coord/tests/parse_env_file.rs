@@ -1,4 +1,4 @@
-use drift_coord::env::parse_env_file;
+use drift_coord::env::{parse_env_file, resolve_env_file};
 use std::fs;
 
 fn temp_env_path(name: &str) -> String {
@@ -61,4 +61,41 @@ fn test_parse_env_file_empty_value() {
     let vars = parse_env_file(&env_path).unwrap();
     
     assert_eq!(vars.get("FOO"), Some(&"".to_string()));
+}
+
+#[test]
+fn test_resolve_env_file_override_used() {
+    let path = temp_env_path("override");
+    fs::write(&path, "FOO=bar\n").unwrap();
+    assert_eq!(resolve_env_file(Some(&path)), Some(path));
+}
+
+#[test]
+fn test_resolve_env_file_cwd_shared_loaded() {
+    let ts = std::time::SystemTime::now().duration_since(std::time::SystemTime::UNIX_EPOCH).unwrap().as_nanos();
+    let tmp_dir = format!("/tmp/drift-test-{}", ts);
+    std::fs::create_dir_all(&tmp_dir).unwrap();
+    let env_file_path = format!("{}/.env.shared", tmp_dir);
+    fs::write(&env_file_path, "BAR=baz\n").unwrap();
+    
+    let cwd = std::env::current_dir().unwrap();
+    std::env::set_current_dir(&tmp_dir).unwrap();
+    let result = resolve_env_file(None);
+    std::env::set_current_dir(&cwd).unwrap();
+    
+    assert_eq!(result, Some(".env.shared".to_string()));
+}
+
+#[test]
+fn test_resolve_env_file_no_file_returns_none() {
+    let ts = std::time::SystemTime::now().duration_since(std::time::SystemTime::UNIX_EPOCH).unwrap().as_nanos();
+    let tmp_dir = format!("/tmp/drift-test-{}", ts);
+    std::fs::create_dir_all(&tmp_dir).unwrap();
+    
+    let cwd = std::env::current_dir().unwrap();
+    std::env::set_current_dir(&tmp_dir).unwrap();
+    let result = resolve_env_file(None);
+    std::env::set_current_dir(&cwd).unwrap();
+    
+    assert_eq!(result, None);
 }

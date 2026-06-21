@@ -33,6 +33,7 @@ pub async fn train(
     }
 
     // Parse env file and filter sensitive keys
+    // Default: .env.shared in cwd. Override: --env-file argument.
     let parsed_env_vars: Option<HashMap<String, String>> = if let Some(path) = &env_file {
         match parse_env_file(path) {
             Ok(vars) => Some(filter_sensitive_keys(vars)),
@@ -42,7 +43,18 @@ pub async fn train(
             }
         }
     } else {
-        None
+        let env_shared_path = ".env.shared";
+        if std::path::Path::new(env_shared_path).exists() {
+            match parse_env_file(env_shared_path) {
+                Ok(vars) => Some(filter_sensitive_keys(vars)),
+                Err(e) => {
+                    warn!(env_shared_path, "failed to parse .env.shared: {}", e);
+                    None
+                }
+            }
+        } else {
+            None
+        }
     };
 
     // Require repo: either from argument or from cache
@@ -651,7 +663,7 @@ fn assign_shards(
     assignments
 }
 
-/// Parse environment variables from a .env file.
+/// Parse environment variables from a .env file (e.g., .env.shared).
 fn parse_env_file(path: &str) -> std::io::Result<HashMap<String, String>> {
     let file = std::fs::File::open(path)?;
     let reader = std::io::BufReader::new(file);

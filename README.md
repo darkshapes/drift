@@ -90,8 +90,24 @@ RUST_LOG=debug ./target/release/drift join
 
 ### Full Command Reference
 
+### Environment Variables
+
+Environment variables for training are loaded from `.env.shared` in the current working directory by default. Create this file to inject environment variables into the training process.
+
+```sh
+# Example .env.shared
+HF_TOKEN=your_token_here
+WANDB_API_KEY=your_wandb_key
+```
+
+```sh
+# Override the default env file location
+drift train --env-file /path/to/custom.env --repo https://github.com/org/repo
+```
+
 | Flag                      | Description                                       |
 | ------------------------- | ------------------------------------------------- |
+| `--env-file <path>`       | Path to environment file (default: `.env.shared` in cwd) |
 | `--join <token>`          | Join session via invitation token                 |
 | `train`                   | Enter training mode as coordinated peer           |
 | `--peer <id>`             | Connect to specific peer node by ID               |

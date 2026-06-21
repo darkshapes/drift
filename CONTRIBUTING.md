@@ -34,6 +34,28 @@ cargo xwin clippy       // For linux to windows compatibility
 cargo update --precise` // make lockfile changes.
 ```
 
+## Environment Variables
+
+When running training, the coordinator loads environment variables from `.env.shared` in the current working directory by default. This file is not checked into version control.
+
+### Creating .env.shared
+
+Create a `.env.shared` file for sensitive credentials and configuration:
+
+```sh
+# Example .env.shared
+HF_TOKEN=your_huggingface_token
+WANDB_API_KEY=your_wandb_key
+```
+
+### Overriding the default
+
+Use `--env-file` to specify an alternate path:
+
+```sh
+drift train --env-file /path/to/custom.env --repo https://github.com/org/repo
+```
+
 ## Testing
 
 ```sh

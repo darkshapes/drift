@@ -4,6 +4,18 @@ use std::{
     io::{self, BufRead, BufReader},
 };
 
+pub fn resolve_env_file(override_path: Option<&str>) -> Option<String> {
+    if let Some(path) = override_path {
+        return Some(path.to_string());
+    }
+    let default_path = ".env.shared";
+    if std::path::Path::new(default_path).exists() {
+        Some(default_path.to_string())
+    } else {
+        None
+    }
+}
+
 pub fn parse_env_file(path: &str) -> io::Result<HashMap<String, String>> {
     let file = fs::File::open(path)?;
     let reader = BufReader::new(file);
