@@ -243,16 +243,22 @@ Falling out of sync when switching commands (ie mesh/parllax)
 
 Add dash menu option
 
-~60-70% of drift-auth code is test-only or unused in production.
+~60-70% of drift-auth code is test-only or unused in production
 
-used components: message types, signature aggregation, repo commit verification.
+- used components: message types, signature aggregation, repo commit verification.
+- not used: Replay protection, AuthConfig, CoordinatorAuth
 
-not used: Replay protection, AuthConfig, CoordinatorAuth
+4. Parse progress from stdout (JSON or DRIFT_PROGRESS format)
+5. Write checkpoints to local cache for resume support
+
+### Small tasks
 
 - shut down inference for training
-- headless, gguf, port cli options
+- --headless, --gguf, --port
 - migrate negate dataset loading to nocturne
 - begin work on tahoe-lafs file store
+
+### Larger Tasks
 
 - swappable pytorch
 - package the project
@@ -261,11 +267,7 @@ not used: Replay protection, AuthConfig, CoordinatorAuth
 - checkpoint specific saving
 - container/vm options (smolvm)
 
-4. Parse progress from stdout (JSON or DRIFT_PROGRESS format)
-
-5. Write checkpoints to local cache for resume support
-
-### References
+## References
 
 https://arxiv.org/abs/2007.14390 Flower: A Friendly Federated Learning Research Framework<br>
 https://arxiv.org/abs/2103.03239 Moshpit SGD: Communication-Efficient Decentralized Training on Heterogeneous Unreliable Devices<br>
