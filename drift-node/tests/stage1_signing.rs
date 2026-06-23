@@ -44,22 +44,31 @@ async fn test_repo_commit_signed_with_iroh_key() {
     let readme = temp_dir.join("README.md");
     std::fs::write(&readme, "# test").unwrap();
     std::process::Command::new("git")
-       .arg("-C")
-       .arg(&temp_dir)
-       .arg("add")
-       .arg("README.md")
-       .output()
-       .unwrap();
+        .arg("-C")
+        .arg(&temp_dir)
+        .arg("add")
+        .arg("README.md")
+        .output()
+        .unwrap();
     std::process::Command::new("git")
-       .arg("-C")
-       .arg(&temp_dir)
-       .arg("commit")
-       .arg("-m")
-       .arg("initial")
-       .output()
-       .unwrap();
+        .arg("-C")
+        .arg(&temp_dir)
+        .arg("commit")
+        .arg("-m")
+        .arg("initial")
+        .output()
+        .unwrap();
 
-    let repo_url = temp_dir.display().to_string();
+    let home_dir = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+    let local_dir = std::path::PathBuf::from(&home_dir).join("local");
+    std::fs::create_dir_all(&local_dir).unwrap();
+    let symlink_path = local_dir.join("drift-test-repo");
+    if symlink_path.exists() {
+        std::fs::remove_file(&symlink_path).unwrap_or(());
+    }
+    std::os::unix::fs::symlink(&temp_dir, &symlink_path).unwrap();
+
+    let repo_url = symlink_path.display().to_string();
 
     let node_id_for_coord = node_id.clone();
     let node_pubkey_for_coord = node_pubkey.clone();
@@ -75,7 +84,7 @@ async fn test_repo_commit_signed_with_iroh_key() {
         let _node_info = read_message(&mut recv).await.unwrap();
 
         let config = TrainConfig {
-            model_artifact: Some("hf://model".to_string()),
+            model_artifact: Some(repo_url.clone()),
             repo_hash: Some("abc123".to_string()),
             dataset_urls: vec![],
         };
