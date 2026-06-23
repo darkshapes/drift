@@ -38,6 +38,7 @@ ls target/release/drift-coord
 ```
 
 **Expected output:**
+
 - Coordinator sends TrainConfig to node
 - Node sends RepoCommit with commit hash
 - Coordinator broadcasts TrainingReady
@@ -65,6 +66,7 @@ ls target/release/drift-coord
 ```
 
 **Expected output:**
+
 - Both nodes send RepoCommit with same hash
 - Coordinator broadcasts TrainingReady to both
 - Both nodes start training
@@ -93,6 +95,7 @@ cd /tmp/repo-b
 ```
 
 **Expected output:**
+
 - Node 1 sends RepoCommit with hash A
 - Node 2 sends RepoCommit with hash B
 - Coordinator detects mismatch
@@ -119,6 +122,7 @@ cd /tmp/repo-b
 ```
 
 **Expected output:**
+
 - After 30s, coordinator broadcasts TrainingCancel
 - "Node <id> did not send RepoCommit after 30s" error
 
@@ -141,6 +145,7 @@ cd /tmp/repo-b
 ```
 
 **Expected output:**
+
 - Node sends RepoCommit
 - After 30s without TrainingReady, node exits with "standby timeout"
 - Coordinator broadcasts TrainingCancel

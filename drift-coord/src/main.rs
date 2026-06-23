@@ -1,4 +1,4 @@
-use drift_coord::{checkpoint, monitor, scheduler};
+use drift_coord::{monitor, scheduler};
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};

@@ -1,7 +1,6 @@
-use std::collections::HashMap;
 use anyhow::{Context, Result};
 use drift_proto::{
-    read_message, write_message, DriftMessage, NodeInfo, TrainConfig, TrainingCancel, DRIFT_ALPN,
+    read_message, write_message, DriftMessage, NodeInfo, TrainingCancel, DRIFT_ALPN,
 };
 use iroh::{Endpoint, PublicKey};
 use std::str::FromStr;
@@ -44,7 +43,7 @@ pub async fn train(
 
     info!(coord_id = %endpoint.id(), "coordinator endpoint bound");
 
-    let train_config = TrainConfig {
+    let train_config = drift_proto::TrainConfig {
         model_artifact,
         repo_hash: None,
         dataset_urls,
@@ -157,7 +156,7 @@ pub async fn train(
         
         // Read with timeout (30s per node)
         let commit_start = Instant::now();
-        let mut received = false;
+        let _received = false;
         
         loop {
             if commit_start.elapsed() > Duration::from_secs(30) {
@@ -171,7 +170,6 @@ pub async fn train(
             match read_message(recv).await {
                 Ok(DriftMessage::RepoCommit(commit)) => {
                     successful_commits.push((node_id.clone(), commit));
-                    received = true;
                     break;
                 }
                 Ok(other) => {
@@ -233,7 +231,7 @@ pub async fn train(
     let unique_commits: std::collections::HashSet<_> = commits.iter().collect();
 
     if unique_commits.len() != 1 {
-        let mut commit_groups: HashMap<&str, Vec<&str>> = HashMap::new();
+        let mut commit_groups: std::collections::HashMap<&str, Vec<&str>> = std::collections::HashMap::new();
         for (node_id, commit) in &repo_commits {
             let commit_key = &commit.commit[..8.min(commit.commit.len())];
             commit_groups

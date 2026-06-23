@@ -1,9 +1,8 @@
-use std::collections::HashMap;
 use anyhow::Result;
 use drift_proto::{
-    read_message, write_message, DriftMessage, NodeInfo, DRIFT_ALPN, DRIFT_RING_ALPN, RepoCommit, TrainConfig, ShardAssignment,
+    read_message, write_message, DriftMessage, NodeInfo, DRIFT_ALPN, DRIFT_RING_ALPN, RepoCommit,
 };
-use iroh::{Endpoint, PublicKey};
+use iroh::Endpoint;
 
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tracing::{error, info, warn};
@@ -244,7 +243,7 @@ async fn handle_connection(
     info!("sent node info");
 
     let mut train_config = None;
-    let mut repo_commit_sent = false;
+    let _repo_commit_sent = false;
     let mut shard_assignment = None;
     let standby_start = std::time::Instant::now();
     let mut training_ready_received = false;
@@ -352,7 +351,7 @@ async fn run_training(
 /// Run real training via subprocess.
 async fn run_real_training(
     config: &drift_proto::TrainConfig,
-    coord_send: &mut iroh::endpoint::SendStream,
+    _coord_send: &mut iroh::endpoint::SendStream,
 ) -> Result<()> {
     use std::process::Stdio;
 
@@ -524,102 +523,6 @@ pub fn find_local_repo(repo_url: &str) -> Option<std::path::PathBuf> {
     }
 
     None
-}
-
-use std::path::{Path, PathBuf};
-use anyhow::Context;
-
-pub fn discover_script_entrypoint(repo_path: &Path) -> Result<String> {
-    let pyproject_path = repo_path.join("pyproject.toml");
-    let content = std::fs::read_to_string(&pyproject_path)
-        .with_context(|| format!("reading {:?}", pyproject_path))?;
-    let value: toml::Value = toml::from_str(&content)
-        .with_context(|| format!("parsing {:?}", pyproject_path))?;
-    if let Some(ati_plug) = find_ati_plug(&value) {
-        return Ok(ati_plug);
-    }
-    anyhow::bail!("ati_plug not found in {:?}", pyproject_path);
-}
-
-fn find_ati_plug(value: &toml::Value) -> Option<String> {
-    if let Some(project_table) = value.as_table() {
-        if let Some(project) = project_table.get("project") {
-            if let Some(project_table) = project.as_table() {
-                if let Some(scripts) = project_table.get("scripts") {
-                    if let Some(scripts_table) = scripts.as_table() {
-                        for (key, value) in scripts_table {
-                            if key.ends_with("ati_plug") {
-                                if let Some(_) = value.as_str() {
-                                    return Some(key.to_string());
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-    if let Some(project_table) = value.as_table() {
-        if let Some(tool) = project_table.get("tool") {
-            if let Some(tool_table) = tool.as_table() {
-                if let Some(uv) = tool_table.get("uv") {
-                if let Some(uv_table) = uv.as_table() {
-                    if let Some(scripts) = uv_table.get("scripts") {
-                        if let Some(scripts_table) = scripts.as_table() {
-                            for (key, value) in scripts_table {
-                                if key.ends_with("ati_plug") {
-                                    if let Some(_) = value.as_str() {
-                                        return Some(key.to_string());
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-                }
-            }
-        }
-    }
-    if let Some(project_table) = value.as_table() {
-        if let Some(scripts) = project_table.get("scripts") {
-            if let Some(scripts_table) = scripts.as_table() {
-                for (key, value) in scripts_table {
-                    if key.ends_with("ati_plug") {
-                        if let Some(_) = value.as_str() {
-                            return Some(key.to_string());
-                        }
-                    }
-                }
-            }
-        }
-    }
-    None
-}
-
-pub fn detect_venv_activation(repo_path: &Path, base: &Path) -> Option<String> {
-    let local_venv = repo_path.join(".venv").join("bin").join("activate");
-    if local_venv.exists() {
-        return Some(local_venv.display().to_string());
-    }
-    let repo_name = repo_path.file_name().map(|p| p.to_str()).unwrap_or(None).unwrap_or("");
-    for dir in &["covn", "drift"] {
-        let standard_venv = base.join(dir).join(repo_name).join(".venv").join("bin").join("activate");
-        if standard_venv.exists() {
-            return Some(standard_venv.display().to_string());
-        }
-    }
-    None
-}
-
-pub fn resolve_entrypoint_to_spawn_cmd(_repo_path: &Path, script_key: &str, base: &Path) -> Result<String> {
-    if script_key.is_empty() {
-        anyhow::bail!("empty script key");
-    }
-    if let Some(activate) = detect_venv_activation(_repo_path, base) {
-        Ok(format!("source {} && {}", activate, script_key))
-    } else {
-        Ok(script_key.to_string())
-    }
 }
 
 fn run_git_ls_remote(repo_path: &std::path::Path) -> Option<String> {
