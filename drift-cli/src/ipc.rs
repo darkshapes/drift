@@ -38,9 +38,6 @@ pub fn parse_python_line(line: &str) -> PythonMessage {
 }
 
 /// Format a DRIFT_STOP message for the Python subprocess.
-pub fn format_stop() -> String {
-    "DRIFT_STOP".to_string()
-}
 
 #[cfg(test)]
 mod tests {
@@ -77,11 +74,6 @@ mod tests {
             parse_python_line("[info] some log line"),
             PythonMessage::Unknown("[info] some log line".to_string())
         );
-    }
-
-    #[test]
-    fn test_format_stop() {
-        assert_eq!(format_stop(), "DRIFT_STOP");
     }
 
     #[test]
